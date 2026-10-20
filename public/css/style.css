@@ -1,0 +1,753 @@
+/* ============================================================
+   PlayTogether — Full Production CSS
+   Dark cozy theme · Mobile-first · Optimised for low-end devices
+   ============================================================ */
+
+/* ---------- Custom Properties ---------- */
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c2333;
+  --surface-3: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #BB86FC;
+  --accent-dim: rgba(187, 134, 252, 0.15);
+  --accent-glow: rgba(187, 134, 252, 0.4);
+  --red: #FF6B6B;
+  --red-glow: rgba(255, 107, 107, 0.25);
+  --dark-piece: #3a3a52;
+  --dark-piece-border: #555;
+  --gold: #FFD700;
+  --success: #3FB950;
+  --error: #F85149;
+  --board-dark: #8B5E3C;
+  --board-light: #D2B48C;
+  --chat-self: #1F3A5F;
+  --chat-other: #262c36;
+}
+
+/* ---------- Global Reset ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+  line-height: 1.5;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ---------- View Container ---------- */
+.view-container {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+/* ---------- Card ---------- */
+.card {
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: fadeIn 0.4s ease;
+}
+
+/* ---------- Logo ---------- */
+.logo-area {
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: 0.25rem;
+  letter-spacing: -0.02em;
+}
+
+.logo-play {
+  color: var(--text);
+}
+
+.logo-together {
+  color: var(--accent);
+}
+
+.logo-piece {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 1.6rem;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* ---------- Tagline ---------- */
+.tagline {
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+  font-size: 0.95rem;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 32px;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  width: 100%;
+  margin-top: 0.5rem;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+}
+
+.btn-secondary:hover {
+  background: var(--accent-dim);
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  padding: 8px;
+  transition: color 0.2s;
+}
+
+.btn-link:hover {
+  color: var(--text);
+}
+
+/* ---------- Divider ---------- */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 1.5rem 0;
+  gap: 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---------- Room Code Input ---------- */
+.join-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.room-code-input {
+  width: 100%;
+  max-width: 200px;
+  padding: 14px;
+  font-size: 2rem;
+  text-align: center;
+  letter-spacing: 0.5em;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  text-transform: uppercase;
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  outline: none;
+  caret-color: var(--accent);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.room-code-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.room-code-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+  letter-spacing: 0.4em;
+}
+
+/* ---------- Error Text ---------- */
+.error-text {
+  color: var(--error);
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  min-height: 1.2em;
+}
+
+/* ---------- Waiting View ---------- */
+.code-display {
+  background: var(--surface-2);
+  border-radius: 16px;
+  padding: 1.5rem 2rem;
+  margin: 1.5rem 0;
+  border: 1px solid var(--border);
+}
+
+.code-display span {
+  font-size: 3rem;
+  font-weight: 800;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  letter-spacing: 0.3em;
+  color: var(--accent);
+}
+
+/* Loading dots */
+.loading-dots {
+  display: inline;
+}
+
+.loading-dots span {
+  animation: blink 1.4s infinite both;
+  font-weight: 800;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* ---------- Game Header ---------- */
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  height: 52px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.header-logo {
+  font-size: 0.9rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.room-badge {
+  background: var(--surface-2);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- Status Dot ---------- */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--text-muted);
+  transition: background 0.3s;
+}
+
+.status-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.status-dot.disconnected {
+  background: var(--error);
+}
+
+.status-dot.reconnecting {
+  background: #f0ad4e;
+  animation: blink 1s infinite;
+}
+
+/* ---------- Icon Button ---------- */
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  background: var(--surface-3);
+}
+
+.icon-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+/* ---------- Game Main ---------- */
+.game-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.board-wrapper {
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.board-container {
+  width: 100%;
+  aspect-ratio: 1;
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  border: 3px solid var(--board-dark);
+}
+
+.board-container canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* ---------- Turn Indicator ---------- */
+.turn-indicator {
+  padding: 10px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  width: 100%;
+  transition: color 0.3s;
+}
+
+.turn-indicator.your-turn {
+  color: var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.turn-indicator.their-turn {
+  color: var(--text-muted);
+}
+
+.turn-indicator.game-over-turn {
+  color: var(--gold);
+}
+
+/* ---------- Score Bar ---------- */
+.score-bar {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.score-red {
+  color: var(--red);
+}
+
+.score-dark {
+  color: var(--text-muted);
+}
+
+/* ---------- Chat Section ---------- */
+.chat-section {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  max-height: 55vh;
+  transition: max-height 0.3s ease;
+}
+
+.chat-section.collapsed {
+  max-height: 48px;
+}
+
+.chat-section.collapsed .chat-messages,
+.chat-section.collapsed .chat-input-area {
+  display: none;
+}
+
+/* ---------- Chat Toggle ---------- */
+.chat-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  min-height: 48px;
+  flex-shrink: 0;
+}
+
+.chat-toggle .chevron {
+  transition: transform 0.3s ease;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.chat-section:not(.collapsed) .chat-toggle .chevron {
+  transform: rotate(180deg);
+}
+
+/* ---------- Unread Badge ---------- */
+.unread-badge {
+  background: var(--error);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  margin-left: 8px;
+}
+
+/* ---------- Chat Messages ---------- */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 100px;
+  overscroll-behavior: contain;
+}
+
+.chat-messages::-webkit-scrollbar {
+  width: 4px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* ---------- Messages ---------- */
+.message {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.4;
+  animation: fadeIn 0.2s ease;
+}
+
+.message.self {
+  align-self: flex-end;
+  background: var(--chat-self);
+  border-bottom-right-radius: 4px;
+}
+
+.message.other {
+  align-self: flex-start;
+  background: var(--chat-other);
+  border-bottom-left-radius: 4px;
+}
+
+.message.system {
+  align-self: center;
+  background: none;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.8rem;
+  padding: 4px 0;
+  max-width: 100%;
+  text-align: center;
+}
+
+.message .msg-time {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  display: block;
+}
+
+/* ---------- Chat Input ---------- */
+.chat-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.chat-input-area input {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 10px 16px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  min-width: 0;
+}
+
+.chat-input-area input:focus {
+  border-color: var(--accent);
+}
+
+.chat-input-area input::placeholder {
+  color: var(--text-muted);
+}
+
+.send-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.send-btn:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.send-btn:active {
+  transform: scale(0.9);
+}
+
+/* ---------- Overlay ---------- */
+.overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+
+.overlay.visible {
+  display: flex;
+}
+
+.overlay-card {
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 2.5rem;
+  text-align: center;
+  max-width: 340px;
+  width: 90%;
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.3s ease;
+}
+
+.overlay-card h2 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.overlay-subtitle {
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+/* ---------- Game View Layout ---------- */
+#game-view {
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+#game-view[style*="flex"],
+#game-view.active {
+  display: flex;
+}
+
+/* ---------- Animations ---------- */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------- Utility: hidden attribute ---------- */
+[hidden] {
+  display: none !important;
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+/* ---------- Focus-visible outlines for a11y ---------- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Remove focus outline for mouse/touch */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ---------- Desktop / Tablet Breakpoint ---------- */
+@media (min-width: 768px) {
+  .board-wrapper {
+    max-width: 560px;
+  }
+
+  .chat-section {
+    max-width: 420px;
+    left: auto;
+    right: 16px;
+    bottom: 0;
+    border-radius: 16px 16px 0 0;
+    border: 1px solid var(--border);
+    border-bottom: none;
+  }
+
+  .chat-section.collapsed {
+    max-height: 48px;
+  }
+
+  .game-header {
+    padding: 8px 24px;
+  }
+}
+
+/* ---------- Safe area (notch devices) ---------- */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .chat-input-area {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .chat-section.collapsed {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
