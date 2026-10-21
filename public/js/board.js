@@ -1,6 +1,6 @@
 /**
- * Board — Canvas-rendered checkers board with touch/click input
- * and automatic board flipping so each player sees their pieces at the bottom.
+ * Board — Canvas-rendered checkers board with touch/click input,
+ * drag-and-drop piece sliding, and automatic board flipping.
  *
  * Playable squares satisfy (row + col) % 2 === 1.
  * Cell values: 0=empty, 1=P1 man, 2=P2 man, 3=P1 king, 4=P2 king.
@@ -14,17 +14,18 @@ class Board {
     this.ctx = this.canvas.getContext('2d');
 
     /* ── colour palette ── */
-    this.LIGHT_SQ          = '#D2B48C';
-    this.DARK_SQ           = '#8B5E3C';
-    this.P1_COLOR          = '#FF6B6B';
-    this.P1_STROKE         = '#cc4444';
-    this.P2_COLOR          = '#3a3a52';
-    this.P2_STROKE         = '#5a5a72';
-    this.KING_ACCENT       = '#FFD700';
-    this.SELECTED_HIGHLIGHT = 'rgba(187,134,252,0.35)';
-    this.VALID_DOT         = 'rgba(187,134,252,0.6)';
-    this.CAPTURE_DOT       = 'rgba(255,107,107,0.6)';
-    this.LAST_MOVE         = 'rgba(187,134,252,0.15)';
+    this.LIGHT_SQ           = '#D2B48C';
+    this.DARK_SQ            = '#8B5E3C';
+    this.P1_COLOR           = '#FF6B6B';
+    this.P1_STROKE          = '#cc4444';
+    this.P2_COLOR           = '#3a3a52';
+    this.P2_STROKE          = '#5a5a72';
+    this.KING_ACCENT        = '#FFD700';
+    this.SELECTED_HIGHLIGHT = 'rgba(187,134,252,0.45)';
+    this.VALID_DOT          = 'rgba(187,134,252,0.85)';
+    this.CAPTURE_DOT        = 'rgba(255,107,107,0.9)';
+    this.LAST_MOVE          = 'rgba(187,134,252,0.2)';
+    this.DRAG_HOVER         = 'rgba(63,185,80,0.4)';
 
     /* ── state ── */
     /** @type {number[][]|null} */
@@ -43,6 +44,12 @@ class Board {
     this.lastMove = null;
     /** @type {Function|null} */
     this.clickCallback = null;
+    /** @type {Function|null} */
+    this.moveCallback = null;
+
+    /* ── drag and drop state ── */
+    this.dragged = null; // { boardRow, boardCol, displayRow, displayCol, piece, x, y, startX, startY, isDragging }
+    this.hoverCell = null; // [displayRow, displayCol] under drag pointer
 
     this.cellSize = 0;
     this.setupCanvas();
@@ -81,7 +88,6 @@ class Board {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     this.cellSize = size / 8;
-
     window.addEventListener('resize', () => this.resize());
   }
 
@@ -101,46 +107,132 @@ class Board {
     this.render();
   }
 
-  /* ─────────── input ─────────── */
+  /* ─────────── input & drag handling ─────────── */
 
   addEventListeners() {
-    let lastInputTime = 0;
-
-    const handleInput = (clientX, clientY) => {
-      const now = Date.now();
-      if (now - lastInputTime < 100) return; // Debounce double-firing events (touch + click)
-      lastInputTime = now;
-
+    const getPos = (clientX, clientY) => {
       const rect = this.canvas.getBoundingClientRect();
       const cs = rect.width / 8;
-      if (cs <= 0) return;
-
+      if (cs <= 0) return null;
       const x = clientX - rect.left;
       const y = clientY - rect.top;
       const displayCol = Math.floor(x / cs);
       const displayRow = Math.floor(y / cs);
-
-      if (displayRow < 0 || displayRow > 7 || displayCol < 0 || displayCol > 7) return;
-
-      const cell = this.toBoard(displayRow, displayCol);
-      if (cell && this.clickCallback) {
-        this.clickCallback(cell[0], cell[1]);
-      }
+      if (displayRow < 0 || displayRow > 7 || displayCol < 0 || displayCol > 7) return null;
+      return {
+        x, y, cs,
+        displayRow, displayCol,
+        boardCell: this.toBoard(displayRow, displayCol),
+      };
     };
 
-    // Use pointerdown for instant, responsive input without tap delay or double firing
+    // Pointer down: initiate drag or selection
     this.canvas.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      handleInput(e.clientX, e.clientY);
+      try { this.canvas.setPointerCapture(e.pointerId); } catch (_) {}
+
+      const pos = getPos(e.clientX, e.clientY);
+      if (!pos || !this.board) return;
+
+      const [br, bc] = pos.boardCell;
+      const piece = this.board[br][bc];
+
+      this.dragged = {
+        boardRow: br,
+        boardCol: bc,
+        displayRow: pos.displayRow,
+        displayCol: pos.displayCol,
+        piece: piece,
+        x: pos.x,
+        y: pos.y,
+        startX: pos.x,
+        startY: pos.y,
+        isDragging: false,
+        pointerId: e.pointerId,
+      };
+
+      // Notify click handler immediately so piece is selected & valid moves show up
+      if (this.clickCallback) {
+        this.clickCallback(br, bc);
+      }
     });
+
+    // Pointer move: update dragging piece position
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (!this.dragged || this.dragged.pointerId !== e.pointerId) return;
+      e.preventDefault();
+
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const dx = x - this.dragged.startX;
+      const dy = y - this.dragged.startY;
+
+      // Only treat as drag if finger/mouse moved more than 8 pixels
+      if (!this.dragged.isDragging && Math.hypot(dx, dy) > 8) {
+        this.dragged.isDragging = true;
+      }
+
+      this.dragged.x = x;
+      this.dragged.y = y;
+
+      const cs = rect.width / 8;
+      const dCol = Math.floor(x / cs);
+      const dRow = Math.floor(y / cs);
+      if (dRow >= 0 && dRow < 8 && dCol >= 0 && dCol < 8) {
+        this.hoverCell = [dRow, dCol];
+      } else {
+        this.hoverCell = null;
+      }
+
+      if (this.dragged.isDragging) {
+        this.render();
+      }
+    });
+
+    // Pointer up: complete move or finish tap
+    const handlePointerUp = (e) => {
+      if (!this.dragged || this.dragged.pointerId !== e.pointerId) return;
+      e.preventDefault();
+
+      try { this.canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+
+      const wasDragging = this.dragged.isDragging;
+      const startBRow = this.dragged.boardRow;
+      const startBCol = this.dragged.boardCol;
+
+      const pos = getPos(e.clientX, e.clientY);
+      this.dragged = null;
+      this.hoverCell = null;
+
+      if (wasDragging && pos) {
+        const [targetRow, targetCol] = pos.boardCell;
+        // If dropped onto a different tile, attempt the move
+        if (targetRow !== startBRow || targetCol !== startBCol) {
+          if (this.moveCallback) {
+            this.moveCallback(startBRow, startBCol, targetRow, targetCol);
+          } else if (this.clickCallback) {
+            this.clickCallback(targetRow, targetCol);
+          }
+        }
+      }
+
+      this.render();
+    };
+
+    this.canvas.addEventListener('pointerup', handlePointerUp);
+    this.canvas.addEventListener('pointercancel', handlePointerUp);
   }
 
-  /**
-   * Register a callback invoked with (boardRow, boardCol) on cell click/tap.
-   * @param {Function} cb
-   */
+  /** Register callback for tap on tile (row, col) */
   onCellClick(cb) {
     this.clickCallback = cb;
+  }
+
+  /** Register callback for drag move attempt (fromRow, fromCol, toRow, toCol) */
+  onMoveAttempt(cb) {
+    this.moveCallback = cb;
   }
 
   /* ─────────── state mutators ─────────── */
@@ -159,7 +251,7 @@ class Board {
   }
 
   setValidMoves(moves) {
-    this.validMoves = moves;
+    this.validMoves = moves || [];
     this.render();
   }
 
@@ -179,10 +271,12 @@ class Board {
     if (!this.board) return;
 
     const ctx = this.ctx;
-    const cs = this.cellSize;
+    const rect = this.canvas.getBoundingClientRect();
+    const cs = (rect.width > 0 ? rect.width : this.cellSize * 8) / 8;
+    this.cellSize = cs;
     const boardPx = cs * 8;
 
-    // 1. Clear
+    // 1. Clear board
     ctx.fillStyle = this.LIGHT_SQ;
     ctx.fillRect(0, 0, boardPx, boardPx);
 
@@ -210,56 +304,100 @@ class Board {
       ctx.fillRect(sc * cs, sr * cs, cs, cs);
     }
 
-    // 5. Valid move indicators
+    // 5. Valid move indicators & hover snap
     for (const move of this.validMoves) {
       const [mr, mc] = this.toDisplay(move.to[0], move.to[1]);
       const cx = mc * cs + cs / 2;
       const cy = mr * cs + cs / 2;
-      const dotRadius = cs * 0.15;
 
+      // If dragging and hovering over this valid tile, highlight tile
+      if (this.hoverCell && this.hoverCell[0] === mr && this.hoverCell[1] === mc) {
+        ctx.fillStyle = this.DRAG_HOVER;
+        ctx.fillRect(mc * cs, mr * cs, cs, cs);
+      }
+
+      // Draw dot/ring indicator
+      const isCapture = move.captures && move.captures.length > 0;
       ctx.beginPath();
-      ctx.arc(cx, cy, dotRadius, 0, Math.PI * 2);
-      ctx.fillStyle = move.captures && move.captures.length > 0
-        ? this.CAPTURE_DOT
-        : this.VALID_DOT;
+      ctx.arc(cx, cy, cs * (isCapture ? 0.22 : 0.16), 0, Math.PI * 2);
+      ctx.fillStyle = isCapture ? this.CAPTURE_DOT : this.VALID_DOT;
       ctx.fill();
+
+      // Outer pulsing ring for captures
+      if (isCapture) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, cs * 0.32, 0, Math.PI * 2);
+        ctx.strokeStyle = this.CAPTURE_DOT;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
     }
 
-    // 6. Pieces
+    // 6. Draw stationary pieces
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         const val = this.board[r][c];
         if (val === 0) continue;
+
+        // If piece is currently being actively dragged, draw it as a ghost on origin square
+        const isBeingDragged = this.dragged && this.dragged.isDragging &&
+                               this.dragged.boardRow === r && this.dragged.boardCol === c;
 
         const [dr, dc] = this.toDisplay(r, c);
         const cx = dc * cs + cs / 2;
         const cy = dr * cs + cs / 2;
         const radius = cs * 0.38;
 
-        // Determine colours
-        const isP1 = val === 1 || val === 3;
-        const fill = isP1 ? this.P1_COLOR : this.P2_COLOR;
-        const stroke = isP1 ? this.P1_STROKE : this.P2_STROKE;
-
-        // Main disc
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.fillStyle = fill;
-        ctx.fill();
-        ctx.strokeStyle = stroke;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // King badge
-        if (val === 3 || val === 4) {
-          ctx.fillStyle = this.KING_ACCENT;
-          ctx.font = `bold ${Math.round(cs * 0.36)}px serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('♛', cx, cy + 1);
-        }
+        this.drawPiece(ctx, cx, cy, radius, val, isBeingDragged ? 0.35 : 1.0);
       }
     }
+
+    // 7. Draw floating dragged piece above all other pieces
+    if (this.dragged && this.dragged.isDragging && this.dragged.piece > 0) {
+      const radius = cs * 0.42; // slightly larger while lifted
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 16;
+      ctx.shadowOffsetY = 6;
+      this.drawPiece(ctx, this.dragged.x, this.dragged.y, radius, this.dragged.piece, 1.0);
+      ctx.restore();
+    }
+  }
+
+  drawPiece(ctx, cx, cy, radius, val, opacity = 1.0) {
+    const isP1 = val === 1 || val === 3;
+    const fill = isP1 ? this.P1_COLOR : this.P2_COLOR;
+    const stroke = isP1 ? this.P1_STROKE : this.P2_STROKE;
+
+    ctx.save();
+    ctx.globalAlpha = opacity;
+
+    // Piece body
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Inner bevel circle for a premium physical checker feel
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.68, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // King crown
+    if (val === 3 || val === 4) {
+      ctx.fillStyle = this.KING_ACCENT;
+      ctx.font = `bold ${Math.round(radius * 1.1)}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('♛', cx, cy + 1);
+    }
+
+    ctx.restore();
   }
 }
 

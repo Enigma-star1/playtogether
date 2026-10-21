@@ -239,15 +239,22 @@ class Game {
   }
 
   /* ==================================================================
-   *  BOARD CLICK HANDLER
+   *  BOARD CLICK & DRAG HANDLERS
    * ================================================================== */
 
   setupBoardHandler() {
+    // Tap to move / select
     this.board.onCellClick((row, col) => {
-      if (!this.isMyTurn || !this.gameActive) return;
-      if (!this.boardState) return;
+      if (!this.gameActive || !this.boardState) return;
 
       const cell = this.boardState[row][col];
+
+      if (!this.isMyTurn) {
+        if (this.isOwnPiece(cell)) {
+          this.showToast("It's your partner's turn ●");
+        }
+        return;
+      }
 
       if (this.board.selectedCell) {
         const [sr, sc] = this.board.selectedCell;
@@ -258,11 +265,12 @@ class Game {
           return;
         }
 
-        // Clicked another own piece — reselect (unless mustCapture restricts)
+        // Clicked another own piece — reselect (unless multi-jump mustCapture restricts)
         if (this.isOwnPiece(cell)) {
           if (this.mustCapture &&
               (this.mustCapture[0] !== row || this.mustCapture[1] !== col)) {
-            return; // must continue with the must-capture piece
+            this.showToast('Must complete multi-jump! ⚔️');
+            return;
           }
           this.selectPiece(row, col);
           return;
@@ -275,6 +283,8 @@ class Game {
         if (validMove) {
           this.ws.send({ type: 'move', from: [sr, sc], to: [row, col] });
           this.board.clearSelection();
+        } else {
+          this.board.clearSelection();
         }
       } else {
         // No piece selected yet
@@ -283,17 +293,72 @@ class Game {
         // Must-capture constraint
         if (this.mustCapture &&
             (this.mustCapture[0] !== row || this.mustCapture[1] !== col)) {
+          this.showToast('Must complete multi-jump! ⚔️');
           return;
         }
 
         this.selectPiece(row, col);
       }
     });
+
+    // Drag-and-drop piece sliding across tiles
+    this.board.onMoveAttempt((fromRow, fromCol, toRow, toCol) => {
+      if (!this.gameActive || !this.boardState) return;
+
+      if (!this.isMyTurn) {
+        this.showToast("It's your partner's turn ●");
+        return;
+      }
+
+      // Check if fromRow, fromCol is own piece
+      const piece = this.boardState[fromRow][fromCol];
+      if (!this.isOwnPiece(piece)) return;
+
+      // Check mustCapture constraint
+      if (this.mustCapture &&
+          (this.mustCapture[0] !== fromRow || this.mustCapture[1] !== fromCol)) {
+        this.showToast('Must complete multi-jump! ⚔️');
+        return;
+      }
+
+      // Get valid moves for source piece
+      const validMoves = this.computeValidMoves(fromRow, fromCol);
+      const matched = validMoves.find(m => m.to[0] === toRow && m.to[1] === toCol);
+
+      if (matched) {
+        this.ws.send({ type: 'move', from: [fromRow, fromCol], to: [toRow, toCol] });
+        this.board.clearSelection();
+      } else {
+        if (this.hasAnyCaptures() && matched === undefined) {
+          this.showToast('Jump capture is forced! ⚔️');
+        }
+        this.board.render();
+      }
+    });
+  }
+
+  showToast(text) {
+    let toast = document.getElementById('game-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'game-toast';
+      toast.className = 'game-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = text;
+    toast.classList.add('visible');
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => {
+      toast.classList.remove('visible');
+    }, 2200);
   }
 
   selectPiece(row, col) {
     this.board.setSelected(row, col);
     const moves = this.computeValidMoves(row, col);
+    if (moves.length === 0 && this.hasAnyCaptures()) {
+      this.showToast('Another piece must capture! ⚔️');
+    }
     this.board.setValidMoves(moves);
   }
 

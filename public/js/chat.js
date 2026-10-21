@@ -104,10 +104,77 @@ class Chat {
 
     this.scrollToBottom();
 
-    // Unread badge when panel is collapsed and the message isn't ours
-    if (this.collapsed && !isSelf) {
-      this.incrementUnread();
+    // Unread badge, sound chime & toast when panel is collapsed and message is from partner
+    if (!isSelf) {
+      this.playChime();
+      if (navigator.vibrate) {
+        try { navigator.vibrate([40, 50, 40]); } catch (_) {}
+      }
+
+      if (this.collapsed) {
+        this.incrementUnread();
+        this.showChatToast(text);
+      }
     }
+  }
+
+  /* ─────────── sound alert (Web Audio API) ─────────── */
+
+  playChime() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = 'sine';
+      osc2.type = 'sine';
+      osc1.frequency.setValueAtTime(659.25, now);        // E5
+      osc2.frequency.setValueAtTime(880.00, now + 0.08); // A5
+
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.25, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(now);
+      osc1.stop(now + 0.12);
+      osc2.start(now + 0.08);
+      osc2.stop(now + 0.35);
+    } catch (_) {
+      // Audio policy safe
+    }
+  }
+
+  showChatToast(text) {
+    let toast = document.getElementById('chat-incoming-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'chat-incoming-toast';
+      toast.className = 'chat-incoming-toast';
+      document.body.appendChild(toast);
+      toast.addEventListener('click', () => {
+        if (this.collapsed) this.togglePanel();
+        toast.classList.remove('visible');
+      });
+    }
+
+    const preview = text.length > 35 ? text.substring(0, 35) + '…' : text;
+    toast.innerHTML = `<span class="toast-icon">💬</span> <span class="toast-text">${preview}</span>`;
+    toast.classList.add('visible');
+
+    clearTimeout(this._chatToastTimer);
+    this._chatToastTimer = setTimeout(() => {
+      toast.classList.remove('visible');
+    }, 4000);
   }
 
   /**
