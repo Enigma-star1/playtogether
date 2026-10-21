@@ -14,11 +14,11 @@ class Board {
     this.ctx = this.canvas.getContext('2d');
 
     /* ── colour palette ── */
-    this.LIGHT_SQ           = '#D2B48C';
-    this.DARK_SQ            = '#8B5E3C';
-    this.P1_COLOR           = '#FF6B6B';
+    this.LIGHT_SQ           = '#F4DEC1';
+    this.DARK_SQ            = '#AD846D';
+    this.P1_COLOR           = '#F17C69';
     this.P1_STROKE          = '#cc4444';
-    this.P2_COLOR           = '#3a3a52';
+    this.P2_COLOR           = '#483B62';
     this.P2_STROKE          = '#5a5a72';
     this.KING_ACCENT        = '#FFD700';
     this.SELECTED_HIGHLIGHT = 'rgba(187,134,252,0.45)';
@@ -78,8 +78,8 @@ class Board {
   setupCanvas() {
     const container = this.canvas.parentElement;
     const availableWidth = container.clientWidth || (container.parentElement ? container.parentElement.clientWidth : 0) || 360;
-    const size = Math.max(Math.min(availableWidth, 520), 280);
-    const dpr = window.devicePixelRatio || 1;
+    const size = Math.max(1, availableWidth);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     this.canvas.width = size * dpr;
     this.canvas.height = size * dpr;
@@ -94,8 +94,8 @@ class Board {
   resize() {
     const container = this.canvas.parentElement;
     const availableWidth = container.clientWidth || (container.parentElement ? container.parentElement.clientWidth : 0) || 360;
-    const size = Math.max(Math.min(availableWidth, 520), 280);
-    const dpr = window.devicePixelRatio || 1;
+    const size = Math.max(1, availableWidth);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     this.canvas.width = size * dpr;
     this.canvas.height = size * dpr;
@@ -222,7 +222,7 @@ class Board {
     };
 
     this.canvas.addEventListener('pointerup', handlePointerUp);
-    this.canvas.addEventListener('pointercancel', handlePointerUp);
+    this.canvas.addEventListener('pointercancel', () => { this.dragged = null; this.hoverCell = null; this.render(); });
   }
 
   /** Register callback for tap on tile (row, col) */
@@ -263,6 +263,7 @@ class Board {
 
   setLastMove(from, to) {
     this.lastMove = { from, to };
+    this.render();
   }
 
   /* ─────────── rendering ─────────── */

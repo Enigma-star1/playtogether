@@ -40,6 +40,7 @@ class Chat {
 
   togglePanel() {
     this.collapsed = !this.collapsed;
+    this.toggle?.setAttribute('aria-expanded', String(!this.collapsed));
     if (this.section) {
       this.section.classList.toggle('collapsed', this.collapsed);
     }
@@ -58,7 +59,7 @@ class Chat {
     const text = this.input.value.trim();
     if (!text) return;
 
-    if (this.sendCallback) this.sendCallback(text);
+    if (this.sendCallback && this.sendCallback(text) === false) return;
 
     this.input.value = '';
     this.input.focus();
@@ -101,6 +102,7 @@ class Chat {
     wrapper.appendChild(textSpan);
     wrapper.appendChild(timeSpan);
     this.messages.appendChild(wrapper);
+    while (this.messages.children.length > 200) this.messages.firstElementChild.remove();
 
     this.scrollToBottom();
 
@@ -124,8 +126,8 @@ class Chat {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      if (ctx.state === 'suspended') ctx.resume();
+      const ctx = this.audioContext || (this.audioContext = new AudioCtx());
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
       const now = ctx.currentTime;
       const osc1 = ctx.createOscillator();
@@ -168,7 +170,7 @@ class Chat {
     }
 
     const preview = text.length > 35 ? text.substring(0, 35) + '…' : text;
-    toast.innerHTML = `<span class="toast-icon">💬</span> <span class="toast-text">${preview}</span>`;
+    toast.textContent = '💬 ' + preview;
     toast.classList.add('visible');
 
     clearTimeout(this._chatToastTimer);
@@ -188,6 +190,7 @@ class Chat {
     div.className = 'message system';
     div.textContent = text;
     this.messages.appendChild(div);
+    while (this.messages.children.length > 200) this.messages.firstElementChild.remove();
     this.scrollToBottom();
   }
 
@@ -196,6 +199,7 @@ class Chat {
   incrementUnread() {
     this.unreadCount++;
     if (this.badge) {
+      this.badge.hidden = false;
       this.badge.textContent = this.unreadCount;
       this.badge.style.display = 'inline-flex';
     }
@@ -204,6 +208,7 @@ class Chat {
   clearUnread() {
     this.unreadCount = 0;
     if (this.badge) {
+      this.badge.hidden = true;
       this.badge.textContent = '0';
       this.badge.style.display = 'none';
     }

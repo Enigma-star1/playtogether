@@ -63,7 +63,7 @@ class CheckersGame {
 
   /** In-bounds check. */
   inBounds(r, c) {
-    return r >= 0 && r < 8 && c >= 0 && c < 8;
+    return Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < 8 && c >= 0 && c < 8;
   }
 
   /* ------------------------------------------------------------------ */
@@ -78,6 +78,7 @@ class CheckersGame {
    * @returns {Array<{ to: [number, number], captures: Array<[number, number]> }>}
    */
   getValidMoves(row, col) {
+    if (!this.inBounds(row, col) || (this.mustCapture && (row !== this.mustCapture[0] || col !== this.mustCapture[1]))) return [];
     const piece = this.board[row][col];
     if (!piece || this.ownerOf(piece) !== this.currentPlayer) return [];
 
@@ -178,6 +179,7 @@ class CheckersGame {
     });
 
     if (this.gameOver) return fail('Game is over');
+    if (!this.inBounds(fromRow, fromCol) || !this.inBounds(toRow, toCol)) return fail('Invalid coordinates');
 
     const piece = this.board[fromRow][fromCol];
     if (!piece) return fail('No piece at source');

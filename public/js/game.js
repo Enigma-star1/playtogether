@@ -17,6 +17,11 @@ class Game {
     this.board = board;
     this.chat = chat;
     this.voice = voice;
+    this.voice.ws = ws;
+    this.revision = 0;
+    this.ready = false;
+    this.opponentConnected = false;
+    this.movePending = false;
 
     /** @type {number|null} Player number (1 or 2) */
     this.myPlayer = null;
@@ -148,7 +153,7 @@ class Game {
     ws.on('room_created', (data) => {
       this.myPlayer = data.player;
       this.roomCode = data.code;
-      ws.setIdentity(data.code, data.player);
+      ws.setIdentity(data.code, data.player, data.token);
       this.showView('waiting-view');
       document.getElementById('display-code').textContent = data.code;
     });
@@ -156,15 +161,24 @@ class Game {
     ws.on('room_joined', (data) => {
       this.myPlayer = data.player;
       this.roomCode = ws.roomCode || data.code;
-      ws.setIdentity(this.roomCode, data.player);
+      ws.setIdentity(this.roomCode, data.player, data.token);
+      this.revision = data.revision || 0;
+      this.ready = true;
+      this.movePending = false;
+      this.opponentConnected = data.opponentConnected !== false;
+      if (data.started === false) { this.showView('waiting-view'); document.getElementById('display-code').textContent = this.roomCode; return; }
       this.startGame(data.state, data.counts);
     });
 
     ws.on('player_joined', (data) => {
+      this.ready = true; this.opponentConnected = true;
+      this.revision = data.revision || 0;
       this.startGame(data.state, data.counts);
     });
 
     ws.on('move_result', (data) => {
+      this.movePending = false;
+      if (Number.isInteger(data.revision)) this.revision = data.revision;
       if (data.valid) {
         this.boardState = data.state.board;
         this.mustCapture = data.state.mustCapture;
@@ -174,6 +188,8 @@ class Game {
         this.updateTurn(data.state);
       } else {
         this.board.clearSelection();
+        if (data.state) { this.boardState = data.state.board; this.board.setState(data.state.board, data.state.currentPlayer, this.myPlayer, data.state.mustCapture); this.updateTurn(data.state); }
+        if (data.error) this.showToast(data.error);
       }
     });
 
@@ -203,16 +219,22 @@ class Game {
     });
 
     ws.on('opponent_disconnected', () => {
+      this.opponentConnected = false;
+      this.voice.stop();
       this.chat.addSystemMessage('Opponent disconnected...');
       document.getElementById('connection-dot').className = 'status-dot disconnected';
     });
 
     ws.on('opponent_reconnected', () => {
+      this.opponentConnected = true;
       this.chat.addSystemMessage('Opponent reconnected! 💜');
       document.getElementById('connection-dot').className = 'status-dot connected';
     });
 
     ws.on('game_restarted', (data) => {
+      this.revision = data.revision; this.movePending = false; this.board.lastMove = null;
+      document.getElementById('rematch-btn').disabled = false;
+      document.getElementById('rematch-btn').textContent = 'Play Again';
       const overlay = document.getElementById('game-over-overlay');
       overlay.classList.remove('visible');
       overlay.hidden = true;
@@ -225,16 +247,28 @@ class Game {
     });
 
     ws.on('disconnected', () => {
+      this.ready = false; this.movePending = false; this.voice.stop();
       const dot = document.getElementById('connection-dot');
       if (dot) dot.className = 'status-dot reconnecting';
     });
 
     ws.on('error', (data) => {
+      if (data.resetIdentity) { ws.clearIdentity(); this.ready = false; this.gameActive = false; this.showView('landing-view'); }
+      else if (this.gameActive) this.showToast(data.error || 'Please try again');
       const errEl = document.getElementById('landing-error');
       if (errEl) {
         errEl.textContent = data.error || data.message || 'Something went wrong';
         errEl.hidden = false;
       }
+    });
+    ws.on('room_closed', (data) => {
+      ws.clearIdentity(); this.ready = false; this.gameActive = false; this.voice.stop(); this.showView('landing-view');
+      const el = document.getElementById('landing-error'); el.textContent = data.error; el.hidden = false;
+    });
+    ws.on('rematch_waiting', (data) => {
+      const button = document.getElementById('rematch-btn');
+      button.textContent = data.player === this.myPlayer ? 'Waiting for your partner…' : 'Accept rematch';
+      button.disabled = data.player === this.myPlayer;
     });
   }
 
@@ -281,7 +315,7 @@ class Game {
           (m) => m.to[0] === row && m.to[1] === col
         );
         if (validMove) {
-          this.ws.send({ type: 'move', from: [sr, sc], to: [row, col] });
+          this.sendMove([sr, sc], [row, col]);
           this.board.clearSelection();
         } else {
           this.board.clearSelection();
@@ -326,7 +360,7 @@ class Game {
       const matched = validMoves.find(m => m.to[0] === toRow && m.to[1] === toCol);
 
       if (matched) {
-        this.ws.send({ type: 'move', from: [fromRow, fromCol], to: [toRow, toCol] });
+        this.sendMove([fromRow, fromCol], [toRow, toCol]);
         this.board.clearSelection();
       } else {
         if (this.hasAnyCaptures() && matched === undefined) {
@@ -353,6 +387,12 @@ class Game {
     }, 2200);
   }
 
+  sendMove(from, to) {
+    if (!this.ready || !this.ws.connected || !this.opponentConnected) { this.showToast('Waiting for both players to reconnect'); return; }
+    if (this.movePending) return;
+    this.movePending = this.ws.send({ type: 'move', from, to, revision: this.revision });
+  }
+
   selectPiece(row, col) {
     this.board.setSelected(row, col);
     const moves = this.computeValidMoves(row, col);
@@ -368,7 +408,8 @@ class Game {
 
   setupChatHandler() {
     this.chat.onSend((text) => {
-      this.ws.send({ type: 'chat', text });
+      if (!this.ready || !this.ws.send({ type: 'chat', text })) { this.showToast('Reconnecting. Your message is still in the box.'); return false; }
+      return true;
     });
   }
 
@@ -378,14 +419,17 @@ class Game {
 
   startGame(state, counts) {
     this.showView('game-view');
-    this.gameActive = true;
+    this.gameActive = !state.gameOver;
+    const overlay = document.getElementById('game-over-overlay');
+    overlay.hidden = !state.gameOver; overlay.classList.toggle('visible', state.gameOver);
+    if (state.gameOver) document.getElementById('winner-text').textContent = state.winner === this.myPlayer ? 'You win! 🎉' : 'They win! 💜';
     this.boardState = state.board;
     this.mustCapture = state.mustCapture;
     this.board.setState(state.board, state.currentPlayer, this.myPlayer, state.mustCapture);
     this.updateTurn(state);
     this.updateScores(counts);
     document.getElementById('game-room-code').textContent = this.roomCode;
-    document.getElementById('connection-dot').className = 'status-dot connected';
+    document.getElementById('connection-dot').className = 'status-dot ' + (this.opponentConnected ? 'connected' : 'disconnected');
 
     // Resize board after the game view is displayed
     setTimeout(() => this.board.resize(), 50);

@@ -3,8 +3,7 @@
  *
  * Uses a single RTCPeerConnection with audio-only streams.
  * Signalling is relayed through the existing WebSocket connection.
- * ICE candidates use Google's free STUN servers — no TURN needed for
- * most residential connections.
+ * STUN is the default; restrictive mobile networks require configured TURN.
  */
 class VoiceCall {
   constructor() {
@@ -33,6 +32,11 @@ class VoiceCall {
 
     // Queue ICE candidates that arrive before remote description is set
     this._pendingCandidates = [];
+    this._starting = false;
+    this._remoteReady = false;
+    this._offering = false;
+    this._pendingOffer = null;
+    this._generation = 0;
   }
 
   /* ─────────── initialise call ─────────── */
@@ -43,27 +47,34 @@ class VoiceCall {
    * @param {boolean} initiator   true = this peer creates the offer
    */
   async init(wsInstance, initiator) {
+    if (this.isActive || this._starting || !wsInstance?.connected) return;
+    this._starting = true;
+    const generation = this._generation;
     this.ws = wsInstance;
     this.isInitiator = initiator;
 
     try {
       // Request microphone access
-      this.localStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
         },
       });
+      if (generation !== this._generation) { stream.getTracks().forEach(track => track.stop()); return; }
+      this.localStream = stream;
     } catch (err) {
       console.warn('[Voice] Mic access denied or unavailable:', err.message);
       // Don't crash the app — just report state
       this.notifyState();
+      this._starting = false;
       return;
     }
 
     // Create peer connection
-    this.pc = new RTCPeerConnection({ iceServers: this.ICE_SERVERS });
+    try { this.pc = new RTCPeerConnection({ iceServers: window.PLAYTOGETHER_ICE_SERVERS || this.ICE_SERVERS }); }
+    catch (_) { this.stop(); return; }
 
     // Add local audio tracks
     for (const track of this.localStream.getTracks()) {
@@ -73,6 +84,7 @@ class VoiceCall {
     // Receive remote audio
     this.pc.ontrack = (event) => {
       this.remoteAudio.srcObject = event.streams[0] || new MediaStream([event.track]);
+      this.remoteAudio.play().catch(() => {});
     };
 
     // Send ICE candidates to remote peer
@@ -95,10 +107,16 @@ class VoiceCall {
     };
 
     this.isActive = true;
+    this._starting = false;
     this.notifyState();
+    this.ws.send({ type: 'signal', data: { type: 'ready' } });
+    if (this._pendingOffer) { const offer = this._pendingOffer; this._pendingOffer = null; await this.handleSignal(offer); }
+    await this.maybeOffer();
+  }
 
-    // Initiator creates the offer
-    if (initiator) {
+  async maybeOffer() {
+    if (this.isActive && this.isInitiator && this._remoteReady && !this._offering && this.pc?.signalingState === 'stable') {
+      this._offering = true;
       try {
         const offer = await this.pc.createOffer();
         await this.pc.setLocalDescription(offer);
@@ -108,6 +126,7 @@ class VoiceCall {
         });
       } catch (err) {
         console.error('[Voice] Failed to create offer:', err);
+        this._offering = false;
       }
     }
   }
@@ -119,11 +138,15 @@ class VoiceCall {
    * @param {{ type: string, sdp?: RTCSessionDescription, candidate?: RTCIceCandidate }} data
    */
   async handleSignal(data) {
+    if (!data || typeof data !== 'object') return;
     try {
+      if (data.type === 'hangup') { this.stop(false); return; }
+      if (data.type === 'ready') { this._remoteReady = true; await this.maybeOffer(); return; }
       if (data.type === 'offer') {
-        // Incoming call — initialise if not already active
+        // A remote message must not open the microphone without a local tap.
         if (!this.pc) {
-          await this.init(this.ws, false);
+          this._pendingOffer = data;
+          return;
         }
         if (!this.pc) return; // mic denied
 
@@ -156,7 +179,7 @@ class VoiceCall {
           await this.pc.addIceCandidate(new RTCIceCandidate(data.candidate));
         } else {
           // Queue until remote description is set
-          this._pendingCandidates.push(data.candidate);
+          if (this._pendingCandidates.length < 64) this._pendingCandidates.push(data.candidate);
         }
       }
     } catch (err) {
@@ -178,12 +201,16 @@ class VoiceCall {
   }
 
   /** End the call and release all resources. */
-  stop() {
+  stop(notify = true) {
+    if (notify && (this.isActive || this._starting)) this.ws?.send({ type: 'signal', data: { type: 'hangup' } });
+    this._generation++;
+    this._starting = false; this._remoteReady = false; this._offering = false; this._pendingOffer = null;
     if (this.localStream) {
       this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = null;
     }
     if (this.pc) {
+      this.pc.onconnectionstatechange = null;
       this.pc.close();
       this.pc = null;
     }

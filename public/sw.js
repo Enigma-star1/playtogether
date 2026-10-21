@@ -1,4 +1,4 @@
-const CACHE_NAME = 'playtogether-v3';
+const CACHE_NAME = 'playtogether-v4';
 
 const ASSETS = [
   '/',
@@ -25,7 +25,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+        keys.filter((key) => key.startsWith('playtogether-') && key !== CACHE_NAME).map((key) => caches.delete(key))
       )
     )
   );
@@ -35,7 +35,7 @@ self.addEventListener('activate', (event) => {
 // Fetch — network-first, fall back to cache. Skip WebSocket requests.
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (url.protocol === 'ws:' || url.protocol === 'wss:') return;
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin || !ASSETS.includes(url.pathname) || url.search) return;
 
   event.respondWith(
     fetch(event.request)
@@ -47,6 +47,6 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(async () => (await caches.match(event.request)) || Response.error())
   );
 });

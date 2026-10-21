@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#0d1117">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#faf3e9">
   <title>PlayTogether</title>
   <link rel="stylesheet" href="/css/style.css">
   <link rel="manifest" href="/manifest.json">
@@ -14,15 +14,20 @@
   <div id="landing-view">
     <div class="view-container">
       <div class="card">
-        <div class="logo-area"><span class="logo-play">Play</span><span class="logo-together">Together</span> <span class="logo-piece">♟️</span></div>
-        <p class="tagline">Game night, simplified.</p>
-        <button id="create-btn" class="btn btn-primary">Create Game</button>
-        <div class="divider"><span>or</span></div>
+        <div class="table-mark" aria-hidden="true"><i></i><i></i></div>
+        <p class="eyebrow">A LITTLE FRIENDLY COMPETITION</p>
+        <h1 class="logo-area"><span class="logo-play">Play</span><span class="logo-together">Together</span></h1>
+        <p class="tagline">Your person. Your table.<br>One more game?</p>
+        <button id="create-btn" class="btn btn-primary" disabled>Create a table <span aria-hidden="true">↗</span></button>
+        <div class="divider"><span>got an invite?</span></div>
         <div class="join-section">
+          <label for="room-input" class="input-label">Your four-letter room code</label>
           <input id="room-input" class="room-code-input" type="text" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
-          <button id="join-btn" class="btn btn-secondary">Join Game</button>
+          <button id="join-btn" class="btn btn-secondary" disabled>Join your friend</button>
         </div>
         <p id="landing-error" class="error-text" hidden></p>
+        <p id="connection-note" class="connection-note" role="status">Connecting to your table…</p>
+        <p class="table-note">Checkers · Chat · Optional voice</p>
       </div>
     </div>
   </div>
@@ -31,7 +36,8 @@
   <div id="waiting-view" style="display:none">
     <div class="view-container">
       <div class="card">
-        <h2>Waiting for player<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></h2>
+        <p class="eyebrow">SAVE THEM A SEAT</p>
+        <h2>Your table is ready<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></h2>
         <div class="code-display"><span id="display-code"></span></div>
         <p>Share this code with your partner 💜</p>
         <button id="copy-btn" class="btn btn-secondary">Copy Code</button>
@@ -43,11 +49,11 @@
   <!-- GAME VIEW -->
   <div id="game-view" style="display:none">
     <header class="game-header">
-      <span class="header-logo">♟️ PlayTogether</span>
+        <span class="header-logo">● PlayTogether</span>
       <span class="room-badge"><span id="game-room-code"></span></span>
       <div class="header-right">
         <span id="connection-dot" class="status-dot"></span>
-        <button id="mic-btn" class="icon-btn" title="Toggle voice">🎤</button>
+        <button id="mic-btn" class="icon-btn" title="Both players tap to join voice. Hold to end." aria-label="Join or mute voice">🎤</button>
       </div>
     </header>
 
@@ -65,15 +71,15 @@
     </main>
 
     <div id="chat-section" class="chat-section collapsed">
-      <div id="chat-toggle" class="chat-toggle">
+      <button id="chat-toggle" class="chat-toggle" type="button" aria-expanded="false">
         <span>💬 Chat</span>
         <span id="unread-badge" class="unread-badge" hidden></span>
         <span class="chevron">▲</span>
-      </div>
+      </button>
       <div id="chat-messages" class="chat-messages"></div>
       <div class="chat-input-area">
-        <input id="chat-input" type="text" placeholder="Type a message..." autocomplete="off">
-        <button id="send-chat-btn" class="send-btn">➤</button>
+        <input id="chat-input" type="text" placeholder="Your next move? A little banter." autocomplete="off" maxlength="1000" aria-label="Message your partner">
+        <button id="send-chat-btn" class="send-btn" aria-label="Send message">➤</button>
       </div>
     </div>
 

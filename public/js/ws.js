@@ -25,12 +25,23 @@ class WS {
     this.roomCode = null;
     /** @type {number|null} */
     this.playerNum = null;
+    this.token = null;
+    this.stopped = false;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('playtogether-seat'));
+      if (saved?.code && saved?.player && saved?.token) this.setIdentity(saved.code, saved.player, saved.token);
+    } catch (_) {}
+    window.addEventListener('online', () => {
+      if (!this.connected && !this.stopped) { clearTimeout(this._reconnectTimer); this.reconnectAttempts = 0; this.connect(); }
+    });
   }
 
   /* ───────── connection ───────── */
 
   /** Open a WebSocket connection. */
   connect() {
+    if (this.stopped || this.ws?.readyState === WebSocket.CONNECTING || this.ws?.readyState === WebSocket.OPEN) return;
+    clearTimeout(this._reconnectTimer);
     try {
       this.ws = new WebSocket(this.url);
     } catch (err) {
@@ -50,6 +61,7 @@ class WS {
           type: 'reconnect',
           code: this.roomCode,
           player: this.playerNum,
+          token: this.token,
         });
       }
     };
@@ -72,7 +84,8 @@ class WS {
       this.emit(data.type, data);
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      if (event.code === 4001) { this.stopped = true; this.clearIdentity(); this.emit('room_closed', { error: 'This game was opened in another connection.' }); }
       this.connected = false;
       this.emit('disconnected');
       this.scheduleReconnect();
@@ -87,8 +100,11 @@ class WS {
 
   /** Schedule a reconnect attempt with exponential back-off. */
   scheduleReconnect() {
+    if (this.stopped) return;
+    clearTimeout(this._reconnectTimer);
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.warn('[WS] Max reconnect attempts reached.');
+      this.emit('reconnect_failed');
       return;
     }
 
@@ -116,7 +132,9 @@ class WS {
   send(data) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
+      return true;
     }
+    return false;
   }
 
   /* ───────── event emitter ───────── */
@@ -155,6 +173,7 @@ class WS {
 
   /** Permanently close the connection (no reconnect). */
   close() {
+    this.stopped = true;
     clearTimeout(this._reconnectTimer);
     this.reconnectAttempts = this.maxReconnectAttempts; // prevent further attempts
     if (this.ws) {
@@ -168,9 +187,16 @@ class WS {
    * @param {string} code       Room code
    * @param {number} playerNum  1 or 2
    */
-  setIdentity(code, playerNum) {
+  setIdentity(code, playerNum, token) {
     this.roomCode = code;
     this.playerNum = playerNum;
+    this.token = token || this.token;
+    try { sessionStorage.setItem('playtogether-seat', JSON.stringify({ code, player: playerNum, token: this.token })); } catch (_) {}
+  }
+
+  clearIdentity() {
+    this.roomCode = null; this.playerNum = null; this.token = null;
+    try { sessionStorage.removeItem('playtogether-seat'); } catch (_) {}
   }
 }
 

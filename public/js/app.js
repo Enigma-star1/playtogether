@@ -27,10 +27,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const roomInput    = document.getElementById('room-input');
   const joinBtn      = document.getElementById('join-btn');
   const landingError = document.getElementById('landing-error');
+  const connectionNote = document.getElementById('connection-note');
+  let roomPending = false;
+  const availability = () => { createBtn.disabled = joinBtn.disabled = !ws.connected || roomPending || !!ws.token; };
+  availability();
+  ws.on('connected', () => { connectionNote.textContent = 'Ready when you are'; availability(); });
+  ws.on('disconnected', () => { roomPending = false; connectionNote.textContent = 'Reconnecting… your game is held for you'; availability(); });
+  ws.on('reconnect_failed', () => { connectionNote.textContent = 'Connection unavailable. Refresh to try again.'; });
+  ['room_created', 'room_joined', 'room_closed', 'error'].forEach(type => ws.on(type, () => { roomPending = false; availability(); }));
 
   createBtn.addEventListener('click', () => {
     landingError.hidden = true;
-    ws.send({ type: 'create_room' });
+    roomPending = ws.send({ type: 'create_room' }); availability();
   });
 
   // Force uppercase, letters only
@@ -47,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     landingError.hidden = true;
     ws.roomCode = code;
-    ws.send({ type: 'join_room', code });
+    roomPending = ws.send({ type: 'join_room', code }); availability();
   });
 
   // Allow pressing Enter in the room-code input
@@ -65,7 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('copy-btn').addEventListener('click', () => {
     const code = document.getElementById('display-code').textContent;
     const btn  = document.getElementById('copy-btn');
-    navigator.clipboard.writeText(code).then(() => {
+    Promise.resolve().then(() => navigator.clipboard.writeText(code)).then(() => {
       const original = btn.textContent;
       btn.textContent = 'Copied! 💜';
       setTimeout(() => { btn.textContent = original; }, 2000);
@@ -81,6 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('back-btn').addEventListener('click', () => {
+    ws.send({ type: 'leave_room' }); ws.clearIdentity(); availability();
     game.showView('landing-view');
   });
 
@@ -91,6 +100,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const micBtn = document.getElementById('mic-btn');
 
   micBtn.addEventListener('click', () => {
+    if (suppressClick) { suppressClick = false; return; }
+    if (!game.ready || !game.opponentConnected) { game.showToast('Voice needs both players connected'); return; }
     if (!voice.isActive) {
       // Start voice — player 1 initiates, player 2 accepts
       voice.init(ws, game.myPlayer === 1);
@@ -101,19 +112,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Long-press to stop call entirely
   let longPressTimer = null;
+  let suppressClick = false;
   micBtn.addEventListener('pointerdown', () => {
     if (!voice.isActive) return;
     longPressTimer = setTimeout(() => {
+      suppressClick = true;
       voice.stop();
     }, 1000);
   });
   micBtn.addEventListener('pointerup',    () => clearTimeout(longPressTimer));
   micBtn.addEventListener('pointerleave', () => clearTimeout(longPressTimer));
+  micBtn.addEventListener('pointercancel', () => { clearTimeout(longPressTimer); suppressClick = false; });
 
   voice.onStateChange(({ isActive, isMuted }) => {
     if (!isActive) {
       micBtn.classList.remove('active');
       micBtn.textContent = '🎤';
+      micBtn.title = 'Both players tap to join voice';
     } else if (isMuted) {
       micBtn.textContent = '🔇';
       micBtn.classList.add('active');
@@ -132,6 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('home-btn').addEventListener('click', () => {
+    voice.stop(); ws.send({ type: 'leave_room' }); ws.clearIdentity();
     location.reload();
   });
 });
