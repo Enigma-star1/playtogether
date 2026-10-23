@@ -359,6 +359,26 @@ button {
   box-shadow: 0 0 12px var(--accent-glow);
 }
 
+.icon-btn.incoming-call {
+  background: rgba(63, 185, 80, 0.2);
+  border-color: var(--success);
+  color: var(--success);
+  animation: callPulse 1.2s infinite ease-in-out;
+}
+
+.icon-btn.connected {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+  box-shadow: 0 0 14px rgba(63, 185, 80, 0.5);
+}
+
+@keyframes callPulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
+  50% { transform: scale(1.12); box-shadow: 0 0 14px 4px rgba(63, 185, 80, 0.4); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(63, 185, 80, 0); }
+}
+
 /* ---------- Game Main ---------- */
 .game-main {
   flex: 1;

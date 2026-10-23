@@ -102,11 +102,30 @@ document.addEventListener('DOMContentLoaded', () => {
   micBtn.addEventListener('click', () => {
     if (suppressClick) { suppressClick = false; return; }
     if (!game.ready || !game.opponentConnected) { game.showToast('Voice needs both players connected'); return; }
+    
+    // Clear incoming call ring if we're answering
+    micBtn.classList.remove('incoming-call');
+
     if (!voice.isActive) {
+      voice.unlockAudio();
       // Start voice — player 1 initiates, player 2 accepts
       voice.init(ws, game.myPlayer === 1);
     } else {
       voice.toggleMute();
+    }
+  });
+
+  // Incoming call notification
+  voice.onIncomingCall((isIncoming) => {
+    if (isIncoming && !voice.isActive) {
+      micBtn.classList.add('incoming-call');
+      micBtn.title = 'Partner is calling! Tap to join voice';
+      game.showToast('📞 Partner is on voice call — Tap 🎤 to join!');
+      if (navigator.vibrate) {
+        try { navigator.vibrate([100, 80, 100]); } catch (_) {}
+      }
+    } else {
+      micBtn.classList.remove('incoming-call');
     }
   });
 
@@ -118,23 +137,37 @@ document.addEventListener('DOMContentLoaded', () => {
     longPressTimer = setTimeout(() => {
       suppressClick = true;
       voice.stop();
+      game.showToast('Voice call ended');
     }, 1000);
   });
   micBtn.addEventListener('pointerup',    () => clearTimeout(longPressTimer));
   micBtn.addEventListener('pointerleave', () => clearTimeout(longPressTimer));
   micBtn.addEventListener('pointercancel', () => { clearTimeout(longPressTimer); suppressClick = false; });
 
-  voice.onStateChange(({ isActive, isMuted }) => {
+  let wasConnected = false;
+  voice.onStateChange(({ isActive, isConnected, isMuted }) => {
     if (!isActive) {
-      micBtn.classList.remove('active');
+      micBtn.classList.remove('active', 'connected', 'incoming-call');
       micBtn.textContent = '🎤';
-      micBtn.title = 'Both players tap to join voice';
-    } else if (isMuted) {
-      micBtn.textContent = '🔇';
-      micBtn.classList.add('active');
+      micBtn.title = 'Tap to start voice call';
+      wasConnected = false;
     } else {
-      micBtn.textContent = '🎤';
+      micBtn.classList.remove('incoming-call');
       micBtn.classList.add('active');
+
+      if (isConnected) {
+        micBtn.classList.add('connected');
+        micBtn.textContent = isMuted ? '🔇' : '🎙️';
+        micBtn.title = isMuted ? 'Muted — Tap to unmute' : 'Connected — Tap to mute, hold to hang up';
+        if (!wasConnected) {
+          game.showToast('Voice connected! 🎙️');
+          wasConnected = true;
+        }
+      } else {
+        micBtn.classList.remove('connected');
+        micBtn.textContent = '🎤';
+        micBtn.title = 'Connecting voice...';
+      }
     }
   });
 

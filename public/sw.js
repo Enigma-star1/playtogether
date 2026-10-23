@@ -1,4 +1,4 @@
-const CACHE_NAME = 'playtogether-v4';
+const CACHE_NAME = 'playtogether-v5';
 
 const ASSETS = [
   '/',
