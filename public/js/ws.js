@@ -44,6 +44,7 @@ class WS {
     clearTimeout(this._reconnectTimer);
     try {
       this.ws = new WebSocket(this.url);
+      this.ws.binaryType = 'arraybuffer';
     } catch (err) {
       console.error('[WS] Failed to create WebSocket:', err);
       this.scheduleReconnect();
@@ -67,6 +68,12 @@ class WS {
     };
 
     this.ws.onmessage = (event) => {
+      // Handle binary audio packets
+      if (typeof event.data !== 'string') {
+        this.emit('binary', event.data);
+        return;
+      }
+
       let data;
       try {
         data = JSON.parse(event.data);
@@ -132,6 +139,18 @@ class WS {
   send(data) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Send binary data (e.g. voice audio packets) over the socket.
+   * @param {ArrayBuffer|ArrayBufferView} buffer
+   */
+  sendBinary(buffer) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(buffer);
       return true;
     }
     return false;

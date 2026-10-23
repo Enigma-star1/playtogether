@@ -16,6 +16,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const voice = new VoiceCall();
   const game  = new Game(ws, board, chat, voice);
 
+  window.ws = ws;
+  window.board = board;
+  window.chat = chat;
+  window.voice = voice;
+  window.game = game;
+
   /* ─── Connect ─── */
   ws.connect();
 
@@ -145,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
   micBtn.addEventListener('pointercancel', () => { clearTimeout(longPressTimer); suppressClick = false; });
 
   let wasConnected = false;
-  voice.onStateChange(({ isActive, isConnected, isMuted }) => {
+  voice.onStateChange(({ isActive, isConnected, isMuted, isRelay }) => {
     if (!isActive) {
       micBtn.classList.remove('active', 'connected', 'incoming-call');
       micBtn.textContent = '🎤';
@@ -160,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         micBtn.textContent = isMuted ? '🔇' : '🎙️';
         micBtn.title = isMuted ? 'Muted — Tap to unmute' : 'Connected — Tap to mute, hold to hang up';
         if (!wasConnected) {
-          game.showToast('Voice connected! 🎙️');
+          game.showToast(isRelay ? 'Voice connected! 🎙️' : 'Voice connected (P2P)! 🎙️');
           wasConnected = true;
         }
       } else {

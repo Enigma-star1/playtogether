@@ -76,15 +76,78 @@ function getOpponent(room, playerNum) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  ICE / TURN Servers Configuration & Cache                          */
+/* ------------------------------------------------------------------ */
+
+let cachedIceServers = null;
+let cachedIceExpiry = 0;
+
+async function handleIceServers(req, res) {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  const now = Date.now();
+  if (cachedIceServers && now < cachedIceExpiry) {
+    return res.end(JSON.stringify({ iceServers: cachedIceServers }));
+  }
+
+  // 1. Dynamic Metered.ca integration (if configured in environment)
+  const meteredDomain = process.env.METERED_DOMAIN;
+  const meteredApiKey = process.env.METERED_API_KEY;
+
+  if (meteredDomain && meteredApiKey) {
+    try {
+      const url = `https://${meteredDomain}/api/v1/turn/credentials?apiKey=${meteredApiKey}`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          cachedIceServers = data;
+          cachedIceExpiry = now + 10 * 60 * 1000; // Cache 10 minutes
+          return res.end(JSON.stringify({ iceServers: cachedIceServers }));
+        }
+      }
+    } catch (err) {
+      console.warn('[ICE] Failed to fetch Metered TURN credentials:', err.message);
+    }
+  }
+
+  // 2. Custom TURN credentials (if configured in environment)
+  const customTurnUrl = process.env.TURN_URL;
+  const customTurnUser = process.env.TURN_USERNAME;
+  const customTurnCred = process.env.TURN_CREDENTIAL;
+
+  const servers = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+    { urls: ['stun:stun.cloudflare.com:3478'] },
+  ];
+
+  if (customTurnUrl && customTurnUser && customTurnCred) {
+    servers.push({
+      urls: customTurnUrl.split(',').map((s) => s.trim()),
+      username: customTurnUser,
+      credential: customTurnCred,
+    });
+  }
+
+  cachedIceServers = servers;
+  cachedIceExpiry = now + 60 * 1000;
+  res.end(JSON.stringify({ iceServers: cachedIceServers }));
+}
+
+/* ------------------------------------------------------------------ */
 /*  HTTP static-file server                                           */
 /* ------------------------------------------------------------------ */
 
 const server = http.createServer((req, res) => {
-  // Map "/" to "/index.html"
   let urlPath = req.url.split('?')[0];
+  if (urlPath === '/api/ice-servers') {
+    return handleIceServers(req, res);
+  }
+
+  // Map "/" to "/index.html"
   if (urlPath === '/') urlPath = '/index.html';
-  // Strip query string
-  urlPath = urlPath.split('?')[0];
 
   const filePath = path.join(PUBLIC_DIR, urlPath);
 
@@ -110,7 +173,7 @@ const server = http.createServer((req, res) => {
 /*  WebSocket server                                                  */
 /* ------------------------------------------------------------------ */
 
-const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
+const wss = new WebSocketServer({ server, maxPayload: 32 * 1024 });
 
 wss.on('connection', (ws) => {
   ws.isAlive = true;
@@ -123,7 +186,19 @@ wss.on('connection', (ws) => {
     ws.isAlive = true;
   });
 
-  ws.on('message', (raw) => {
+  ws.on('message', (raw, isBinary) => {
+    // Binary messages are voice audio relay frames
+    if (isBinary) {
+      if (!ws.roomCode || !ws.playerNum) return;
+      const room = rooms.get(ws.roomCode);
+      if (!room) return;
+      const opponent = getOpponent(room, ws.playerNum);
+      if (opponent && opponent.readyState === 1 /* OPEN */) {
+        opponent.send(raw, { binary: true });
+      }
+      return;
+    }
+
     if (Date.now() - messageWindow > 10000) { messageWindow = Date.now(); messageCount = 0; }
     if (++messageCount > 120) return ws.close(1008, 'Too many messages');
     let msg;
