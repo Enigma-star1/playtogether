@@ -38,6 +38,7 @@
 }
 
 body {
+  min-height: 100vh;
   min-height: 100dvh;
   background: var(--bg);
   color: var(--text);
@@ -56,6 +57,7 @@ button {
 
 /* ---------- View Container ---------- */
 .view-container {
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   align-items: center;
@@ -680,6 +682,7 @@ button {
 
 /* ---------- Game View Layout ---------- */
 #game-view {
+  height: 100vh;
   flex-direction: column;
   height: 100dvh;
   overflow: auto;
@@ -869,3 +872,35 @@ button {
 .game-toast { white-space: normal; max-width: 92vw; width: max-content; text-align: center; }
 @media (max-width: 380px) { .card { padding: 1.5rem; } .logo-area { font-size: 1.8rem; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* Room controls and replies stay small and need no animation loop. */
+.compact-btn { min-height: 40px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); cursor: pointer; font-size: .78rem; }
+.compact-btn:disabled { opacity: .55; cursor: default; }
+.room-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; padding: 8px; }
+.room-tools .icon-btn { flex-shrink: 0; }
+.resume-panel { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 16px; background: var(--surface-2); }
+.lobby-seats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 18px; text-align: left; }
+.lobby-seats > div { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+.lobby-seats strong, .lobby-seats span { display: block; }
+.lobby-seats span { font-size: .78rem; margin-top: 4px; color: var(--text-muted); }
+#waiting-view .view-container { padding-bottom: 76px; }
+#waiting-view .code-display { padding: 12px; margin: 16px 0; }
+#waiting-view .code-display span { font-size: 2.25rem; }
+#waiting-view h2 { font-size: 1.55rem; line-height: 1.2; }
+#waiting-tools #float-btn { display: none; }
+#waiting-view .card { padding: 20px; }
+#waiting-view .card > p:not(.eyebrow) { font-size: .8rem; }
+#waiting-view h2 { font-size: 1.4rem; }
+.reply-preview { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); font-size: .8rem; }
+.reply-preview > div { flex: 1; min-width: 0; border-left: 3px solid var(--accent); padding-left: 8px; }
+.reply-preview p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-section.collapsed .reply-preview, .chat-section.collapsed .chat-status { display: none; }
+.message:not(.system) { touch-action: pan-y; flex-shrink: 0; }
+.msg-quote { display: block; padding: 6px 8px; margin-bottom: 6px; border-left: 3px solid var(--accent); border-radius: 4px; background: #ffffff60; font-size: .78rem; white-space: pre-wrap; }
+.msg-meta { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.msg-reply { padding: 6px 4px; min-height: 32px; background: transparent; border: 0; color: var(--accent); font-size: .72rem; cursor: pointer; }
+.chat-status { padding: 4px 12px; font-size: .75rem; color: var(--text-muted); }
+.msg-text { white-space: pre-wrap; }
+.board-wrapper { max-width: min(520px, calc(100vh - 280px)); }
+@supports (height: 100dvh) { .board-wrapper { max-width: min(520px, calc(100dvh - 280px)); } }
+@media (max-height: 560px) { .board-wrapper { max-width: 320px; } }

@@ -11,6 +11,8 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const CheckersGame = require('./game');
 const { randomBytes } = require('node:crypto');
+const push = require('./notifications');
+const notify = push.createNotifier();
 
 /* ------------------------------------------------------------------ */
 /*  Configuration                                                     */
@@ -20,7 +22,7 @@ const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, '../public/');
 const HEARTBEAT_INTERVAL_MS = 25_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
-const ROOM_CLEANUP_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+const ROOM_CLEANUP_DELAY_MS = 30 * 60 * 1000; // Hold a table for 30 minutes after both leave the browser.
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -73,6 +75,18 @@ function broadcast(room, data) {
 /** Get the opponent's WebSocket (or null). */
 function getOpponent(room, playerNum) {
   return room.players[playerNum === 1 ? 2 : 1] || null;
+}
+
+function lobbyState(room) {
+  return { type: 'lobby_state', started: room.started,
+    connected: { 1: !!room.players[1], 2: !!room.players[2] },
+    ready: { 1: room.ready.has(1), 2: room.ready.has(2) } };
+}
+
+function roomSnapshot(room, code, player) {
+  return { code, player, token: room.tokens[player], state: room.game.getState(),
+    counts: room.game.getPieceCounts(), revision: room.revision, started: room.started,
+    opponentConnected: !!getOpponent(room, player), lobby: lobbyState(room), history: room.history };
 }
 
 /* ------------------------------------------------------------------ */
@@ -142,6 +156,10 @@ async function handleIceServers(req, res) {
 
 const server = http.createServer((req, res) => {
   let urlPath = req.url.split('?')[0];
+  if (urlPath === '/api/push-key') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ publicKey: push.publicKey }));
+  }
   if (urlPath === '/api/ice-servers') {
     return handleIceServers(req, res);
   }
@@ -191,7 +209,7 @@ wss.on('connection', (ws) => {
     if (isBinary) {
       if (!ws.roomCode || !ws.playerNum) return;
       const room = rooms.get(ws.roomCode);
-      if (!room) return;
+      if (!room || room.players[ws.playerNum] !== ws) return;
       const opponent = getOpponent(room, ws.playerNum);
       if (opponent && opponent.readyState === 1 /* OPEN */) {
         opponent.send(raw, { binary: true });
@@ -212,22 +230,40 @@ wss.on('connection', (ws) => {
     const currentRoom = rooms.get(ws.roomCode);
     const isMember = currentRoom && currentRoom.players[ws.playerNum] === ws;
     if (['create_room', 'join_room', 'reconnect'].includes(msg.type) && isMember) return sendTo(ws, { type: 'error', error: 'Already in a room' });
-    if (['move', 'restart', 'chat', 'signal'].includes(msg.type) && !isMember) return sendTo(ws, { type: 'error', error: 'Not in a room' });
+    if (['move', 'restart', 'chat', 'signal', 'ready', 'presence', 'push_subscribe', 'sync'].includes(msg.type) && !isMember) return sendTo(ws, { type: 'error', error: 'Not in a room' });
     if (['join_room', 'reconnect'].includes(msg.type) && (typeof msg.code !== 'string' || !/^[a-z]{4}$/i.test(msg.code))) return sendTo(ws, { type: 'error', error: 'Invalid room code' });
     switch (msg.type) {
       /* ---- Room lifecycle ---- */
+
+      case 'sync': {
+        sendTo(ws, { type: 'room_joined', ...roomSnapshot(currentRoom, ws.roomCode, ws.playerNum) });
+        break;
+      }
+
+      case 'presence': {
+        if (typeof msg.hidden === 'boolean') currentRoom.hidden[ws.playerNum] = msg.hidden;
+        break;
+      }
+
+      case 'push_subscribe': {
+        if (msg.subscription === null) delete currentRoom.subscriptions[ws.playerNum];
+        else if (push.validSubscription(msg.subscription)) currentRoom.subscriptions[ws.playerNum] = { endpoint: msg.subscription.endpoint, keys: { auth: msg.subscription.keys.auth, p256dh: msg.subscription.keys.p256dh } };
+        else return sendTo(ws, { type: 'error', error: 'This notification subscription is not supported.', pushError: true });
+        sendTo(ws, { type: 'push_saved', enabled: !!currentRoom.subscriptions[ws.playerNum] });
+        break;
+      }
 
       case 'create_room': {
         if (rooms.size >= 1000) return sendTo(ws, { type: 'error', error: 'Rooms are busy. Try later.' });
         const code = generateRoomCode();
         const game = new CheckersGame();
-        const room = { game, players: { 1: ws, 2: null }, tokens: { 1: randomBytes(24).toString('hex'), 2: null }, revision: 0, rematch: new Set() };
+        const room = { game, players: { 1: ws, 2: null }, tokens: { 1: randomBytes(24).toString('hex'), 2: null }, revision: 0, rematch: new Set(), ready: new Set(), started: false, history: [], nextMessageId: 1, subscriptions: {}, hidden: {} };
         rooms.set(code, room);
 
         ws.playerNum = 1;
         ws.roomCode = code;
 
-        sendTo(ws, { type: 'room_created', code, player: 1, token: room.tokens[1] });
+        sendTo(ws, { type: 'room_created', ...roomSnapshot(room, code, 1) });
         break;
       }
 
@@ -253,11 +289,9 @@ wss.on('connection', (ws) => {
         ws.playerNum = 2;
         ws.roomCode = code;
 
-        const state = room.game.getState();
-        const counts = room.game.getPieceCounts();
-
-        sendTo(ws, { type: 'room_joined', code, player: 2, token: room.tokens[2], state, counts, revision: room.revision, started: true, opponentConnected: !!room.players[1] });
-        sendTo(room.players[1], { type: 'player_joined', state, counts });
+        sendTo(ws, { type: 'room_joined', ...roomSnapshot(room, code, 2) });
+        broadcast(room, lobbyState(room));
+        notify(room, code, 1, 'lobby', 'Your partner joined. Come back when you’re ready.');
         break;
       }
 
@@ -286,23 +320,45 @@ wss.on('connection', (ws) => {
         ws.playerNum = player;
         ws.roomCode = code;
 
-        const state = room.game.getState();
-        const counts = room.game.getPieceCounts();
-        sendTo(ws, { type: 'room_joined', code, player, token: room.tokens[player], state, counts, revision: room.revision, started: !!room.tokens[2], opponentConnected: !!getOpponent(room, player) });
+        sendTo(ws, { type: 'room_joined', ...roomSnapshot(room, code, player) });
 
         const opponent = getOpponent(room, player);
         sendTo(opponent, { type: 'opponent_reconnected' });
+        if (!room.started) broadcast(room, lobbyState(room));
         break;
       }
 
       /* ---- Gameplay ---- */
 
       case 'leave_room': {
-        if (!isMember) break;
-        clearTimeout(currentRoom.cleanupTimer);
-        broadcast(currentRoom, { type: 'room_closed', error: 'The room was closed. Start a new game when you are ready.' });
-        rooms.delete(ws.roomCode);
-        for (const socket of Object.values(currentRoom.players)) if (socket) { socket.roomCode = null; socket.playerNum = null; }
+        // A saved departure can be delivered after a network loss without reclaiming the seat.
+        const code = isMember ? ws.roomCode : msg.code;
+        const room = rooms.get(code);
+        if (!room) { sendTo(ws, { type: 'room_closed', error: 'You left the room.' }); break; }
+        if (!isMember && (![1, 2].includes(msg.player) || typeof msg.token !== 'string' || room.tokens[msg.player] !== msg.token)) {
+          return sendTo(ws, { type: 'error', error: 'Unable to leave this seat', resetIdentity: true });
+        }
+        clearTimeout(room.cleanupTimer);
+        const departing = isMember ? ws.playerNum : msg.player;
+        notify(room, code, departing === 1 ? 2 : 1, 'room', 'Your partner left. This table has ended.');
+        const notice = { type: 'room_closed', error: 'A player left. This room has ended.' };
+        broadcast(room, notice);
+        if (!isMember) sendTo(ws, notice);
+        rooms.delete(code);
+        for (const socket of Object.values(room.players)) if (socket) { socket.roomCode = null; socket.playerNum = null; }
+        break;
+      }
+
+      case 'ready': {
+        if (currentRoom.started) break;
+        if (typeof msg.ready !== 'boolean') return sendTo(ws, { type: 'error', error: 'Invalid ready status' });
+        if (msg.ready) currentRoom.ready.add(ws.playerNum);
+        else currentRoom.ready.delete(ws.playerNum);
+        if (currentRoom.ready.size === 2 && currentRoom.players[1] && currentRoom.players[2]) {
+          currentRoom.started = true;
+          broadcast(currentRoom, { type: 'game_started', state: currentRoom.game.getState(), counts: currentRoom.game.getPieceCounts(), revision: currentRoom.revision });
+          notify(currentRoom, ws.roomCode, currentRoom.game.currentPlayer, 'turn', 'The game has started. It’s your turn.');
+        } else broadcast(currentRoom, lobbyState(currentRoom));
         break;
       }
 
@@ -311,7 +367,7 @@ wss.on('connection', (ws) => {
         if (!room) return sendTo(ws, { type: 'error', error: 'Not in a room' });
 
         const coord = a => Array.isArray(a) && a.length === 2 && a.every(v => Number.isInteger(v) && v >= 0 && v < 8);
-        if (!coord(msg.from) || !coord(msg.to) || msg.revision !== room.revision || !room.players[1] || !room.players[2]) return sendTo(ws, { type: 'move_result', valid: false, error: 'Board changed or partner disconnected. Try again when connected.', state: room.game.getState(), counts: room.game.getPieceCounts(), revision: room.revision });
+        if (!coord(msg.from) || !coord(msg.to) || msg.revision !== room.revision || !room.started) return sendTo(ws, { type: 'move_result', valid: false, error: 'Board changed or the game has not started. Try again.', state: room.game.getState(), counts: room.game.getPieceCounts(), revision: room.revision });
 
         // Verify it's this player's turn
         if (room.game.currentPlayer !== ws.playerNum) {
@@ -342,7 +398,10 @@ wss.on('connection', (ws) => {
         };
         if (result.error) payload.error = result.error;
 
-        if (result.valid) broadcast(room, payload);
+        if (result.valid) {
+          broadcast(room, payload);
+          if (!result.state.gameOver && result.state.currentPlayer !== ws.playerNum) notify(room, ws.roomCode, result.state.currentPlayer, 'turn', 'Your turn. Tap to return to your table.');
+        }
         else sendTo(ws, payload);
 
         // Check for game over
@@ -366,6 +425,7 @@ wss.on('connection', (ws) => {
         if (room.rematch.size < 2) { broadcast(room, { type: 'rematch_waiting', player: ws.playerNum }); break; }
         room.rematch.clear(); room.revision++;
         room.game.reset();
+        notify(room, ws.roomCode, room.game.currentPlayer, 'turn', 'Your rematch has started. It’s your turn.');
         broadcast(room, {
           type: 'game_restarted',
           revision: room.revision,
@@ -382,12 +442,18 @@ wss.on('connection', (ws) => {
         if (!room) return;
         if (typeof msg.text !== 'string' || !msg.text.trim() || msg.text.length > 1000) return sendTo(ws, { type: 'error', error: 'Message must be 1–1000 characters' });
 
-        broadcast(room, {
-          type: 'chat',
-          text: msg.text.trim(),
-          from: ws.playerNum,
-          timestamp: Date.now(),
-        });
+        if (typeof msg.clientId !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(msg.clientId)) return sendTo(ws, { type: 'error', error: 'Invalid message ID', chatError: true });
+        const existing = room.history.find(m => m.from === ws.playerNum && m.clientId === msg.clientId);
+        if (existing) { sendTo(ws, existing); break; }
+        const original = msg.replyTo == null ? null : room.history.find(m => m.id === msg.replyTo);
+        if (msg.replyTo != null && !original) return sendTo(ws, { type: 'error', error: 'That message is no longer available to reply to.', chatError: true });
+        const message = { type: 'chat', id: room.nextMessageId++, clientId: msg.clientId,
+          text: msg.text.trim(), from: ws.playerNum, timestamp: Date.now(),
+          reply: original ? { id: original.id, from: original.from, text: original.text.slice(0, 160) } : null };
+        room.history.push(message);
+        if (room.history.length > 40) room.history.shift();
+        broadcast(room, message);
+        notify(room, ws.roomCode, ws.playerNum === 1 ? 2 : 1, 'chat', 'Your partner sent a message. Tap to read it.');
         break;
       }
 
@@ -424,12 +490,12 @@ wss.on('connection', (ws) => {
 
     // Vacate the slot (don't destroy room yet)
     room.players[ws.playerNum] = null;
+    if (!room.started) { room.ready.delete(ws.playerNum); broadcast(room, lobbyState(room)); }
 
     // If both players are gone, schedule cleanup
     if (!room.players[1] && !room.players[2]) {
-      room.cleanupTimer = setTimeout(() => {
-        rooms.delete(ws.roomCode);
-      }, ROOM_CLEANUP_DELAY_MS);
+      const code = ws.roomCode;
+      room.cleanupTimer = setTimeout(() => { rooms.delete(code); }, ROOM_CLEANUP_DELAY_MS);
     }
   });
 });

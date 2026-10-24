@@ -18,6 +18,16 @@ class Chat {
     this.unreadCount = 0;
     /** @type {Function|null} */
     this.sendCallback = null;
+    this.records = new Map();
+    this.replyTo = null;
+    this.pending = null;
+    this.myPlayer = null;
+    this.soundEnabled = true;
+    try { this.soundEnabled = localStorage.getItem('playtogether-sound') !== 'off'; } catch (_) {}
+    document.getElementById('cancel-reply-btn').addEventListener('click', () => this.selectReply(null));
+    const unlock = () => this.unlockAudio();
+    document.addEventListener('pointerdown', unlock, { passive: true });
+    document.addEventListener('keydown', unlock);
 
     /* ── wire events ── */
     if (this.toggle) {
@@ -57,12 +67,14 @@ class Chat {
   sendMessage() {
     if (!this.input) return;
     const text = this.input.value.trim();
-    if (!text) return;
-
-    if (this.sendCallback && this.sendCallback(text) === false) return;
-
-    this.input.value = '';
-    this.input.focus();
+    if (!text || this.pending) return;
+    const clientId = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const message = { text, replyTo: this.replyTo?.id || null, clientId };
+    if (this.sendCallback && this.sendCallback(message) === false) return;
+    this.pending = message;
+    this.setStatus('Sending…');
+    this.sendBtn.disabled = true;
+    this.input.readOnly = true;
   }
 
   /**
@@ -82,11 +94,26 @@ class Chat {
    * @param {boolean} isSelf       true if the message is from this client
    * @param {string|number} timestamp  ISO string or epoch ms
    */
-  addMessage(text, fromPlayer, isSelf, timestamp) {
+  addMessage(data, silent = false) {
     if (!this.messages) return;
+    const { text, from: fromPlayer, timestamp } = data;
+    const isSelf = fromPlayer === this.myPlayer;
+    if (isSelf && this.pending?.clientId === data.clientId) {
+      this.pending = null; this.input.value = ''; this.input.readOnly = false;
+      this.sendBtn.disabled = false; this.selectReply(null); this.setStatus('');
+    }
+    if (this.records.has(data.id)) return;
+    this.records.set(data.id, data);
 
     const wrapper = document.createElement('div');
     wrapper.className = 'message ' + (isSelf ? 'self' : 'other');
+    wrapper.dataset.messageId = data.id;
+    if (data.reply) {
+      const quote = document.createElement('span');
+      quote.className = 'msg-quote';
+      quote.textContent = `${data.reply.from === this.myPlayer ? 'You' : 'Partner'}: ${data.reply.text}`;
+      wrapper.appendChild(quote);
+    }
 
     const textSpan = document.createElement('span');
     textSpan.className = 'msg-text';
@@ -100,14 +127,40 @@ class Chat {
     timeSpan.textContent = `${hh}:${mm}`;
 
     wrapper.appendChild(textSpan);
-    wrapper.appendChild(timeSpan);
+    const meta = document.createElement('span');
+    meta.className = 'msg-meta';
+    meta.appendChild(timeSpan);
+    const reply = document.createElement('button');
+    reply.type = 'button'; reply.className = 'msg-reply'; reply.textContent = 'Reply ↩';
+    reply.setAttribute('aria-label', 'Reply to ' + text.slice(0, 60));
+    reply.addEventListener('click', () => this.selectReply(data));
+    meta.appendChild(reply); wrapper.appendChild(meta);
+    let swipe;
+    wrapper.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse' || e.target.closest('button')) return;
+      swipe = { x: e.clientX, y: e.clientY, id: e.pointerId, dx: 0 };
+    });
+    wrapper.addEventListener('pointermove', e => {
+      if (!swipe || e.pointerId !== swipe.id) return;
+      if (Math.abs(e.clientY - swipe.y) > 24) { swipe = null; wrapper.style.transform = ''; return; }
+      swipe.dx = Math.max(0, e.clientX - swipe.x);
+      wrapper.style.transform = `translateX(${Math.min(60, swipe.dx)}px)`;
+    }, { passive: true });
+    wrapper.addEventListener('pointerup', () => {
+      if (swipe?.dx >= 48) this.selectReply(data);
+      swipe = null; wrapper.style.transform = '';
+    });
+    wrapper.addEventListener('pointercancel', () => { swipe = null; wrapper.style.transform = ''; });
     this.messages.appendChild(wrapper);
-    while (this.messages.children.length > 200) this.messages.firstElementChild.remove();
+    while (this.messages.children.length > 80) {
+      this.records.delete(Number(this.messages.firstElementChild.dataset.messageId));
+      this.messages.firstElementChild.remove();
+    }
 
     this.scrollToBottom();
 
     // Unread badge, sound chime & toast when panel is collapsed and message is from partner
-    if (!isSelf) {
+    if (!isSelf && !silent) {
       this.playChime();
       if (navigator.vibrate) {
         try { navigator.vibrate([40, 50, 40]); } catch (_) {}
@@ -122,12 +175,25 @@ class Chat {
 
   /* ─────────── sound alert (Web Audio API) ─────────── */
 
-  playChime() {
+  unlockAudio() {
+    if (!this.soundEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      this.audioContext ||= new AudioCtx();
+      if (this.audioContext.state === 'suspended') this.audioContext.resume().catch(() => {});
+      this.suspendWhenIdle();
+    } catch (_) {}
+  }
+
+  playChime(kind = 'chat') {
+    if (!this.soundEnabled) return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = this.audioContext || (this.audioContext = new AudioCtx());
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      this.suspendWhenIdle();
 
       const now = ctx.currentTime;
       const osc1 = ctx.createOscillator();
@@ -136,11 +202,11 @@ class Chat {
 
       osc1.type = 'sine';
       osc2.type = 'sine';
-      osc1.frequency.setValueAtTime(659.25, now);        // E5
-      osc2.frequency.setValueAtTime(880.00, now + 0.08); // A5
+      osc1.frequency.setValueAtTime(kind === 'turn' ? 523.25 : 659.25, now);
+      osc2.frequency.setValueAtTime(kind === 'turn' ? 783.99 : 880.00, now + 0.08);
 
       gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.25, now + 0.02);
+      gain.gain.linearRampToValueAtTime(0.12, now + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
 
       osc1.connect(gain);
@@ -151,6 +217,7 @@ class Chat {
       osc1.stop(now + 0.12);
       osc2.start(now + 0.08);
       osc2.stop(now + 0.35);
+      osc2.onended = () => { osc1.disconnect(); osc2.disconnect(); gain.disconnect(); };
     } catch (_) {
       // Audio policy safe
     }
@@ -179,6 +246,11 @@ class Chat {
     }, 4000);
   }
 
+  suspendWhenIdle() {
+    clearTimeout(this._audioIdleTimer);
+    this._audioIdleTimer = setTimeout(() => this.audioContext?.suspend().catch(() => {}), 2000);
+  }
+
   /**
    * Append a system / informational message (centred, italic).
    * @param {string} text
@@ -190,7 +262,10 @@ class Chat {
     div.className = 'message system';
     div.textContent = text;
     this.messages.appendChild(div);
-    while (this.messages.children.length > 200) this.messages.firstElementChild.remove();
+    while (this.messages.children.length > 80) {
+      this.records.delete(Number(this.messages.firstElementChild.dataset.messageId));
+      this.messages.firstElementChild.remove();
+    }
     this.scrollToBottom();
   }
 
@@ -218,8 +293,48 @@ class Chat {
 
   scrollToBottom() {
     if (this.messages) {
-      this.messages.scrollTo({ top: this.messages.scrollHeight, behavior: 'smooth' });
+      this.messages.scrollTop = this.messages.scrollHeight;
     }
+  }
+
+  selectReply(message) {
+    if (this.pending) return;
+    this.replyTo = message;
+    document.getElementById('reply-preview').hidden = !message;
+    if (message) {
+      document.getElementById('reply-author').textContent = message.from === this.myPlayer ? 'Replying to you' : 'Replying to your partner';
+      document.getElementById('reply-text').textContent = message.text;
+      this.input.focus();
+    }
+  }
+
+  setStatus(text) {
+    const status = document.getElementById('chat-status');
+    status.textContent = text; status.hidden = !text;
+  }
+
+  restore(history, myPlayer) {
+    this.myPlayer = myPlayer;
+    this.records.clear(); this.messages.replaceChildren();
+    for (const message of history || []) this.addMessage(message, true);
+    if (this.pending) {
+      if (this.sendCallback(this.pending) !== false) this.setStatus('Sending…');
+    }
+  }
+
+  sendFailed(error) {
+    this.pending = null; this.input.readOnly = false; this.sendBtn.disabled = false;
+    this.selectReply(null); this.setStatus(error);
+  }
+
+  reset() {
+    this.pending = null; this.input.readOnly = false; this.sendBtn.disabled = false;
+    this.selectReply(null); this.input.value = ''; this.records.clear();
+    this.messages.replaceChildren(); this.clearUnread(); this.setStatus('');
+    clearTimeout(this._chatToastTimer);
+    document.getElementById('chat-incoming-toast')?.classList.remove('visible');
+    this.collapsed = true; this.section.classList.add('collapsed');
+    this.toggle.setAttribute('aria-expanded', 'false');
   }
 }
 

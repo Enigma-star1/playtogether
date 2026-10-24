@@ -6,9 +6,11 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:browser": "node test/browser-smoke.cjs"
   },
   "dependencies": {
+    "web-push": "^3.6.7",
     "ws": "^8.16.0"
   },
   "engines": {

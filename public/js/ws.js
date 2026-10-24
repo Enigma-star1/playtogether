@@ -27,12 +27,33 @@ class WS {
     this.playerNum = null;
     this.token = null;
     this.stopped = false;
+    this.autoRejoin = false;
+    this.leaving = false;
     try {
-      const saved = JSON.parse(sessionStorage.getItem('playtogether-seat'));
-      if (saved?.code && saved?.player && saved?.token) this.setIdentity(saved.code, saved.player, saved.token);
+      let raw;
+      try { raw = localStorage.getItem('playtogether-seat'); } catch (_) {}
+      const saved = JSON.parse(raw || sessionStorage.getItem('playtogether-seat'));
+      if (/^[A-Z]{4}$/.test(saved?.code) && [1, 2].includes(saved?.player) && /^[a-f0-9]{48}$/.test(saved?.token)) {
+        this.leaving = saved.leaving === true;
+        this.setIdentity(saved.code, saved.player, saved.token);
+        this.autoRejoin = this.leaving;
+      }
     } catch (_) {}
     window.addEventListener('online', () => {
       if (!this.connected && !this.stopped) { clearTimeout(this._reconnectTimer); this.reconnectAttempts = 0; this.connect(); }
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden || this.stopped || !this.autoRejoin) return;
+      if (!this.connected) { this.reconnectAttempts = 0; this.connect(); }
+      else {
+        this.send({ type: this.leaving ? 'leave_room' : 'sync', code: this.roomCode, player: this.playerNum, token: this.token });
+        clearTimeout(this._syncTimer);
+        this._syncTimer = setTimeout(() => {
+          const stale = this.ws;
+          this.ws = null; this.connected = false;
+          stale?.close(); this.emit('disconnected'); this.connect();
+        }, 6000);
+      }
     });
   }
 
@@ -51,15 +72,18 @@ class WS {
       return;
     }
 
+    const socket = this.ws;
     this.ws.onopen = () => {
+      if (this.ws !== socket) return;
+      const shouldResume = this.autoRejoin;
       this.connected = true;
       this.reconnectAttempts = 0;
       this.emit('connected');
 
       // Rejoin room after a reconnect if identity is set
-      if (this.roomCode && this.playerNum) {
+      if (this.roomCode && this.playerNum && shouldResume) {
         this.send({
-          type: 'reconnect',
+          type: this.leaving ? 'leave_room' : 'reconnect',
           code: this.roomCode,
           player: this.playerNum,
           token: this.token,
@@ -68,6 +92,8 @@ class WS {
     };
 
     this.ws.onmessage = (event) => {
+      if (this.ws !== socket) return;
+      clearTimeout(this._syncTimer);
       // Handle binary audio packets
       if (typeof event.data !== 'string') {
         this.emit('binary', event.data);
@@ -92,7 +118,9 @@ class WS {
     };
 
     this.ws.onclose = (event) => {
-      if (event.code === 4001) { this.stopped = true; this.clearIdentity(); this.emit('room_closed', { error: 'This game was opened in another connection.' }); }
+      if (this.ws !== socket) return;
+      clearTimeout(this._syncTimer);
+      if (event.code === 4001) { this.stopped = true; this.clearIdentity(false); this.emit('room_closed', { error: 'Your game is open in another tab. Continue there or reload here.', preserveSeat: true }); }
       this.connected = false;
       this.emit('disconnected');
       this.scheduleReconnect();
@@ -138,8 +166,7 @@ class WS {
    */
   send(data) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
-      return true;
+      try { this.ws.send(JSON.stringify(data)); return true; } catch (_) {}
     }
     return false;
   }
@@ -194,6 +221,7 @@ class WS {
   close() {
     this.stopped = true;
     clearTimeout(this._reconnectTimer);
+    clearTimeout(this._syncTimer);
     this.reconnectAttempts = this.maxReconnectAttempts; // prevent further attempts
     if (this.ws) {
       this.ws.close();
@@ -210,11 +238,38 @@ class WS {
     this.roomCode = code;
     this.playerNum = playerNum;
     this.token = token || this.token;
-    try { sessionStorage.setItem('playtogether-seat', JSON.stringify({ code, player: playerNum, token: this.token })); } catch (_) {}
+    this.autoRejoin = true;
+    this.saveIdentity();
   }
 
-  clearIdentity() {
+  saveIdentity() {
+    const value = JSON.stringify({ code: this.roomCode, player: this.playerNum, token: this.token, leaving: this.leaving });
+    try { localStorage.setItem('playtogether-seat', value); } catch (_) {}
+    try { sessionStorage.setItem('playtogether-seat', value); } catch (_) {}
+  }
+
+  resume() {
+    this.autoRejoin = true;
+    return this.send({ type: this.leaving ? 'leave_room' : 'reconnect', code: this.roomCode, player: this.playerNum, token: this.token });
+  }
+
+  leaveRoom() {
+    if (!this.token) return;
+    this.leaving = true; this.autoRejoin = true;
+    this.saveIdentity();
+    this.send({ type: 'leave_room', code: this.roomCode, player: this.playerNum, token: this.token });
+    if (!this.connected && !this.stopped) { this.reconnectAttempts = 0; this.connect(); }
+  }
+
+  clearIdentity(persist = true) {
+    if (persist) {
+      try {
+        const saved = JSON.parse(localStorage.getItem('playtogether-seat'));
+        if (saved?.token === this.token) localStorage.removeItem('playtogether-seat');
+      } catch (_) {}
+    }
     this.roomCode = null; this.playerNum = null; this.token = null;
+    this.autoRejoin = false; this.leaving = false;
     try { sessionStorage.removeItem('playtogether-seat'); } catch (_) {}
   }
 }

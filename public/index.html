@@ -18,6 +18,11 @@
         <p class="eyebrow">A LITTLE FRIENDLY COMPETITION</p>
         <h1 class="logo-area"><span class="logo-play">Play</span><span class="logo-together">Together</span></h1>
         <p class="tagline">Your person. Your table.<br>One more game?</p>
+        <div id="resume-panel" class="resume-panel" hidden>
+          <p id="resume-label"></p>
+          <button id="resume-btn" class="btn btn-primary">Resume your game</button>
+          <button id="leave-saved-btn" class="btn-link">Leave saved room</button>
+        </div>
         <button id="create-btn" class="btn btn-primary" disabled>Create a table <span aria-hidden="true">↗</span></button>
         <div class="divider"><span>got an invite?</span></div>
         <div class="join-section">
@@ -36,12 +41,20 @@
   <div id="waiting-view" style="display:none">
     <div class="view-container">
       <div class="card">
-        <p class="eyebrow">SAVE THEM A SEAT</p>
-        <h2>Your table is ready<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></h2>
+        <p class="eyebrow">YOUR TABLE, YOUR PACE</p>
+        <h2>Make yourself comfortable</h2>
         <div class="code-display"><span id="display-code"></span></div>
-        <p>Share this code with your partner 💜</p>
-        <button id="copy-btn" class="btn btn-secondary">Copy Code</button>
-        <button id="back-btn" class="btn-link">← Back</button>
+        <p>Send an invite. Have a chat. Start when you’re both ready.</p>
+        <button id="copy-btn" class="btn btn-secondary">Copy invite link</button>
+        <div class="lobby-seats" aria-live="polite">
+          <div><strong>You</strong><span id="my-lobby-status">Taking your seat</span></div>
+          <div><strong>Your partner</strong><span id="partner-lobby-status">Waiting for them</span></div>
+        </div>
+        <p id="lobby-note" class="connection-note" role="status">Waiting for your partner to join.</p>
+        <button id="ready-btn" class="btn btn-primary" disabled>I’m ready</button>
+        <div id="waiting-tools" class="tools-slot"></div>
+        <button id="back-btn" class="btn-link">Leave room</button>
+        <p class="table-note">Accidentally close the tab? Come back and resume.<br>Empty tables are held for 30 minutes.</p>
       </div>
     </div>
   </div>
@@ -53,9 +66,10 @@
       <span class="room-badge"><span id="game-room-code"></span></span>
       <div class="header-right">
         <span id="connection-dot" class="status-dot"></span>
-        <button id="mic-btn" class="icon-btn" title="Both players tap to join voice. Hold to end." aria-label="Join or mute voice">🎤</button>
+        <button id="leave-btn" class="compact-btn">Leave</button>
       </div>
     </header>
+    <div id="game-tools" class="tools-slot"></div>
 
     <main class="game-main">
       <div class="board-wrapper">
@@ -77,6 +91,11 @@
         <span class="chevron">▲</span>
       </button>
       <div id="chat-messages" class="chat-messages"></div>
+      <div id="reply-preview" class="reply-preview" hidden>
+        <div><strong id="reply-author"></strong><p id="reply-text"></p></div>
+        <button id="cancel-reply-btn" class="compact-btn" aria-label="Cancel reply">×</button>
+      </div>
+      <p id="chat-status" class="chat-status" role="status" hidden></p>
       <div class="chat-input-area">
         <input id="chat-input" type="text" placeholder="Your next move? A little banter." autocomplete="off" maxlength="1000" aria-label="Message your partner">
         <button id="send-chat-btn" class="send-btn" aria-label="Send message">➤</button>
@@ -94,10 +113,26 @@
     </div>
   </div>
 
+  <div id="room-tools" class="room-tools" hidden>
+    <button id="mic-btn" class="icon-btn" title="Both players tap to join voice. Hold to end." aria-label="Join or mute voice">🎤</button>
+    <button id="sound-btn" class="compact-btn" aria-pressed="true">Sound on</button>
+    <button id="notify-btn" class="compact-btn" hidden>Enable alerts</button>
+    <button id="float-btn" class="compact-btn" hidden title="Experimental floating turn card. Expand it to return to your game.">Float turn ↗</button>
+  </div>
+  <div id="leave-overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="leave-title" hidden>
+    <div class="overlay-card">
+      <h2 id="leave-title">Leave this room?</h2>
+      <p class="overlay-subtitle">This ends the room for both of you. If you’re just replying on WhatsApp, switch apps instead.</p>
+      <button id="confirm-leave-btn" class="btn btn-primary">Leave room</button>
+      <button id="cancel-leave-btn" class="btn btn-secondary">Stay here</button>
+    </div>
+  </div>
+
   <script src="/js/ws.js"></script>
   <script src="/js/board.js"></script>
   <script src="/js/chat.js"></script>
   <script src="/js/voice.js"></script>
+  <script src="/js/away.js"></script>
   <script src="/js/game.js"></script>
   <script src="/js/app.js"></script>
   <script>
