@@ -88,6 +88,21 @@ const { chromium } = require('playwright');
     await a.locator('#float-btn').click();
     await a.waitForFunction(() => !game.away.stream);
     assert.equal(await a.evaluate(() => floatTrack.readyState), 'ended');
+
+    // Automatic float on tab leave (visibilitychange to hidden)
+    await a.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await a.waitForFunction(() => game.away.stream?.active && window.fakePiP);
+    assert.equal(await a.evaluate(() => game.away.isAutoPiP), true);
+
+    // Returning to tab (visibilitychange to visible) closes auto float
+    await a.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await a.waitForFunction(() => !window.fakePiP && !game.away.stream);
     // Mock only browser push enrollment/transport; no test message leaves this machine.
     await hostContext.grantPermissions(['notifications'], { origin: url });
     await a.evaluate(() => {

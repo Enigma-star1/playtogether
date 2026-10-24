@@ -29,7 +29,7 @@ The server generates VAPID keys for its lifetime by default, matching the lifeti
 
 ## Optional floating turn card
 
-During a game, browsers with video Picture-in-Picture support show **Float turn**. This opens a view-only 320 × 180 status card. It redraws on status changes, uses no animation loop, and sends no video over the network. Closing it or leaving the room stops the stream. Expand the floating window to return and play.
+During a game, browsers with video Picture-in-Picture support show **Float turn** and automatically pop up the 320 × 180 floating card when you switch away from the tab. It redraws on status changes, uses no animation loop, and sends no video over the network. Returning to the tab smoothly closes the auto-float, or you can expand the floating window to jump straight back to your table. Manually toggling it via **Float turn** keeps it open across tab switches until closed. Closing it or leaving the room stops the stream.
 
 This is experimental on mobile. Desktop PiP opening and stream cleanup have been checked; actual Tecno Spark 4 multitasking performance, background updates and voice quality require a real-device check. Unsupported browsers keep the normal game and alerts.
 

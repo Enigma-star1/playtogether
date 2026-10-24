@@ -1,60 +1,141 @@
 /* Optional background alerts and a tiny, event-driven video PiP status card. */
 class Away {
   constructor(ws, game) {
-    this.ws = ws; this.game = game;
+    this.ws = ws;
+    this.game = game;
     this.button = document.getElementById('float-btn');
     this.notifyButton = document.getElementById('notify-btn');
+
     this.video = document.createElement('video');
-    this.video.muted = true; this.video.playsInline = true;
+    this.video.muted = true;
+    this.video.playsInline = true;
     this.video.setAttribute('aria-hidden', 'true');
     this.video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none';
+    this.video.autoPictureInPicture = true;
+    this.video.setAttribute('autopictureinpicture', '');
     document.body.appendChild(this.video);
-    this.button.hidden = !(document.pictureInPictureEnabled && this.video.requestPictureInPicture && HTMLCanvasElement.prototype.captureStream);
+
+    this.isAutoPiP = false;
+    this.opening = false;
+
+    this.button.hidden = !(
+      document.pictureInPictureEnabled &&
+      this.video.requestPictureInPicture &&
+      HTMLCanvasElement.prototype.captureStream
+    );
     this.button.addEventListener('click', () => this.toggleFloat());
     this.video.addEventListener('leavepictureinpicture', () => this.releaseStream());
-    this.notifyButton.hidden = !('Notification' in window && 'PushManager' in window && 'serviceWorker' in navigator && window.isSecureContext);
+
+    // Browser-driven automatic Picture-in-Picture action handler
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.setActionHandler('enterpictureinpicture', async () => {
+          if (this.game.ready && !document.pictureInPictureElement) {
+            await this.openFloat(true);
+          }
+        });
+      } catch (_) {}
+    }
+
+    this.notifyButton.hidden = !(
+      'Notification' in window &&
+      'PushManager' in window &&
+      'serviceWorker' in navigator &&
+      window.isSecureContext
+    );
     this.notifyButton.addEventListener('click', () => this.toggleNotifications());
     this.enabled = false;
     this.wantsAlerts = false;
-    try { this.wantsAlerts = localStorage.getItem('playtogether-alerts') === 'on'; } catch (_) {}
+    try {
+      this.wantsAlerts = localStorage.getItem('playtogether-alerts') === 'on';
+    } catch (_) {}
     this.renderNotificationButton();
-    ws.on('push_saved', data => {
+
+    ws.on('push_saved', (data) => {
       this.notifyButton.disabled = false;
       clearTimeout(this.pushTimer);
-      this.enabled = this.wantsAlerts = data.enabled; this.renderNotificationButton();
-      try { localStorage.setItem('playtogether-alerts', data.enabled ? 'on' : 'off'); } catch (_) {}
+      this.enabled = this.wantsAlerts = data.enabled;
+      this.renderNotificationButton();
+      try {
+        localStorage.setItem('playtogether-alerts', data.enabled ? 'on' : 'off');
+      } catch (_) {}
     });
+
     const joined = () => {
       this.presence();
-      if (this.wantsAlerts && window.Notification?.permission === 'granted') this.subscribe().catch(() => this.notificationFailed());
+      if (this.wantsAlerts && window.Notification?.permission === 'granted') {
+        this.subscribe().catch(() => this.notificationFailed());
+      }
     };
-    ws.on('room_created', joined); ws.on('room_joined', joined);
-    ws.on('error', data => { if (data.pushError) this.notificationFailed(); });
+    ws.on('room_created', joined);
+    ws.on('room_joined', joined);
+    ws.on('error', (data) => {
+      if (data.pushError) this.notificationFailed();
+    });
+
+    // Handle tab switching / visibility changes
     document.addEventListener('visibilitychange', () => {
       this.presence();
-      if (!document.hidden) this.clearNotifications();
+      if (!document.hidden) {
+        this.clearNotifications();
+        // If float opened automatically on leaving, close it smoothly when returning to the board
+        if (this.isAutoPiP && document.pictureInPictureElement === this.video) {
+          this.stop();
+        }
+      } else {
+        // Automatically open the floating turn card when leaving the tab
+        if (
+          this.game.ready &&
+          !document.pictureInPictureElement &&
+          !this.opening &&
+          document.pictureInPictureEnabled &&
+          typeof this.video.requestPictureInPicture === 'function'
+        ) {
+          this.openFloat(true).catch(() => {});
+        }
+      }
     });
-    window.addEventListener('pagehide', () => { this.stop(); });
+
+    window.addEventListener('pagehide', () => {
+      this.stop();
+    });
   }
 
   presence() {
     if (this.game.ready) this.ws.send({ type: 'presence', hidden: document.hidden });
   }
 
-  renderNotificationButton() { this.notifyButton.textContent = this.enabled ? 'Alerts on' : 'Enable alerts'; }
+  renderNotificationButton() {
+    this.notifyButton.textContent = this.enabled ? 'Alerts on' : 'Enable alerts';
+  }
 
   async toggleNotifications() {
-    if (!this.ws.connected || !this.game.ready) return this.game.showToast('Reconnect before changing alerts.');
+    if (!this.ws.connected || !this.game.ready) {
+      return this.game.showToast('Reconnect before changing alerts.');
+    }
     if (this.enabled) {
-      try { this.sendSubscription(null); } catch (_) { this.notificationFailed(); }
+      try {
+        this.sendSubscription(null);
+      } catch (_) {
+        this.notificationFailed();
+      }
       return;
     }
-    // Permission is requested only following this explicit button press.
     let permission;
-    try { permission = await Notification.requestPermission(); } catch (_) { return this.notificationFailed(); }
-    if (permission !== 'granted') return this.game.showToast('Alerts are off. You can allow them in Chrome’s site settings.');
+    try {
+      permission = await Notification.requestPermission();
+    } catch (_) {
+      return this.notificationFailed();
+    }
+    if (permission !== 'granted') {
+      return this.game.showToast('Alerts are off. You can allow them in Chrome’s site settings.');
+    }
     this.notifyButton.disabled = true;
-    try { await this.subscribe(); } catch (_) { this.notificationFailed(); }
+    try {
+      await this.subscribe();
+    } catch (_) {
+      this.notificationFailed();
+    }
   }
 
   async subscribe() {
@@ -65,9 +146,20 @@ class Away {
     try {
       let readyTimer;
       let registration;
-      try { registration = await Promise.race([navigator.serviceWorker.ready, new Promise((_, reject) => { readyTimer = setTimeout(() => reject(Error('Service worker unavailable')), 8000); })]); }
-      finally { clearTimeout(readyTimer); }
-      const url = new URL(this.ws.url); url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:'; url.pathname = '/api/push-key'; url.search = '';
+      try {
+        registration = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) => {
+            readyTimer = setTimeout(() => reject(Error('Service worker unavailable')), 8000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(readyTimer);
+      }
+      const url = new URL(this.ws.url);
+      url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+      url.pathname = '/api/push-key';
+      url.search = '';
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8000);
       let publicKey;
@@ -75,17 +167,29 @@ class Away {
         const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw Error('Push unavailable');
         ({ publicKey } = await response.json());
-      } finally { clearTimeout(timer); }
-      const key = Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+      } finally {
+        clearTimeout(timer);
+      }
+      const key = Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), (c) =>
+        c.charCodeAt(0)
+      );
       let subscription = await registration.pushManager.getSubscription();
       if (subscription) {
         const old = new Uint8Array(subscription.options.applicationServerKey || []);
-        if (old.length !== key.length || old.some((n, i) => n !== key[i])) { await subscription.unsubscribe(); subscription = null; }
+        if (old.length !== key.length || old.some((n, i) => n !== key[i])) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
       }
-      subscription ||= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      subscription ||= await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: key,
+      });
       if (this.ws.token !== token || !this.game.ready) return;
       this.sendSubscription(subscription.toJSON());
-    } finally { this.subscribing = false; }
+    } finally {
+      this.subscribing = false;
+    }
   }
 
   sendSubscription(subscription) {
@@ -96,8 +200,10 @@ class Away {
   }
 
   notificationFailed() {
-    clearTimeout(this.pushTimer); this.notifyButton.disabled = false;
-    this.enabled = false; this.renderNotificationButton();
+    clearTimeout(this.pushTimer);
+    this.notifyButton.disabled = false;
+    this.enabled = false;
+    this.renderNotificationButton();
     this.game.showToast('Couldn’t update alerts. Tap to retry when connected.');
   }
 
@@ -105,7 +211,9 @@ class Away {
     try {
       const registration = await navigator.serviceWorker?.getRegistration();
       const notifications = await registration?.getNotifications();
-      for (const notification of notifications || []) if (notification.data?.code === this.game.roomCode) notification.close();
+      for (const notification of notifications || []) {
+        if (notification.data?.code === this.game.roomCode) notification.close();
+      }
     } catch (_) {}
   }
 
@@ -123,45 +231,93 @@ class Away {
     if (this.signature === signature) return;
     this.signature = signature;
     const ctx = this.canvas.getContext('2d');
-    ctx.fillStyle = '#faf3e9'; ctx.fillRect(0, 0, 320, 180);
-    ctx.fillStyle = '#716576'; ctx.font = '14px sans-serif'; ctx.fillText(`PlayTogether · ${this.game.roomCode || ''}`, 20, 32);
-    ctx.fillStyle = label === 'Your turn' ? '#75508e' : '#342b3d'; ctx.font = 'bold 30px sans-serif'; ctx.fillText(label, 20, 95);
-    ctx.fillStyle = '#716576'; ctx.font = '13px sans-serif'; ctx.fillText(detail, 20, 146);
+    ctx.fillStyle = '#faf3e9';
+    ctx.fillRect(0, 0, 320, 180);
+    ctx.fillStyle = '#716576';
+    ctx.font = '14px sans-serif';
+    ctx.fillText(`PlayTogether · ${this.game.roomCode || ''}`, 20, 32);
+    ctx.fillStyle = label === 'Your turn' ? '#75508e' : '#342b3d';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.fillText(label, 20, 95);
+    ctx.fillStyle = '#716576';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(detail, 20, 146);
     this.stream?.getVideoTracks()[0]?.requestFrame?.();
   }
 
-  async toggleFloat() {
-    if (this.opening) return;
-    if (document.pictureInPictureElement === this.video) { await this.stop(); return; }
-    this.opening = true; this.button.disabled = true;
-    const request = this.floatRequest = (this.floatRequest || 0) + 1;
+  /**
+   * Open Picture-in-Picture floating turn card.
+   * @param {boolean} isAuto  true if triggered automatically by leaving the tab
+   */
+  async openFloat(isAuto = false) {
+    if (this.opening || document.pictureInPictureElement === this.video) return;
+    if (!this.game.ready) return;
+    this.opening = true;
+    this.isAutoPiP = isAuto;
+    if (this.button) this.button.disabled = true;
+    const request = (this.floatRequest = (this.floatRequest || 0) + 1);
     try {
-      this.canvas = document.createElement('canvas'); this.canvas.width = 320; this.canvas.height = 180;
-      // captureStream with no rate captures only when this small canvas changes.
-      this.stream = this.canvas.captureStream();
-      this.video.srcObject = this.stream; this.signature = null; this.render();
+      if (!this.canvas) {
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = 320;
+        this.canvas.height = 180;
+      }
+      if (!this.stream) {
+        this.stream = this.canvas.captureStream();
+        this.video.srcObject = this.stream;
+      }
+      this.signature = null;
+      this.render();
       await this.video.play();
       if (request !== this.floatRequest || !this.game.ready) throw Error('Room closed');
       await this.video.requestPictureInPicture();
-      if (request !== this.floatRequest || !this.game.ready) { await this.stop(); return; }
-      this.button.textContent = 'Close float';
+      if (request !== this.floatRequest || !this.game.ready) {
+        await this.stop();
+        return;
+      }
+      if (this.button) this.button.textContent = 'Close float';
     } catch (_) {
       this.releaseStream();
-      this.game.showToast('Floating view isn’t available here. Alerts still work.');
-    } finally { this.opening = false; this.button.disabled = false; }
+      if (!isAuto) {
+        this.game.showToast('Floating view isn’t available here. Alerts still work.');
+      }
+    } finally {
+      this.opening = false;
+      if (this.button) this.button.disabled = false;
+    }
+  }
+
+  /** Toggle Picture-in-Picture manually via button. */
+  async toggleFloat() {
+    if (this.opening) return;
+    if (document.pictureInPictureElement === this.video) {
+      this.isAutoPiP = false;
+      await this.stop();
+    } else {
+      await this.openFloat(false);
+    }
   }
 
   releaseStream() {
-    this.video.pause(); this.video.srcObject = null;
-    this.stream?.getTracks().forEach(track => track.stop());
-    this.stream = null; this.canvas = null; this.signature = null;
-    this.button.textContent = 'Float turn ↗';
+    this.video.pause();
+    this.video.srcObject = null;
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = null;
+    this.canvas = null;
+    this.signature = null;
+    this.isAutoPiP = false;
+    if (this.button) this.button.textContent = 'Float turn ↗';
   }
 
   async stop() {
     this.floatRequest = (this.floatRequest || 0) + 1;
-    try { if (document.pictureInPictureElement === this.video) await document.exitPictureInPicture(); } catch (_) {}
+    try {
+      if (document.pictureInPictureElement === this.video) {
+        await document.exitPictureInPicture();
+      }
+    } catch (_) {}
     this.releaseStream();
   }
 }
+
 window.Away = Away;
